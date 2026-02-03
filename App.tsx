@@ -133,6 +133,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'wide' | 'focused' | 'closeup'>('wide');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isPseudoFullScreen, setIsPseudoFullScreen] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
   const [brightness, setBrightness] = useState(100);
@@ -166,19 +167,41 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
   useEffect(() => {
     const handleFsChange = () => {
-      setIsFullScreen(!!document.fullscreenElement);
+      setIsFullScreen(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
+      if (!(document.fullscreenElement || (document as any).webkitFullscreenElement)) {
+        setIsPseudoFullScreen(false);
+      }
     };
     document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+    };
   }, []);
 
   const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      arenaRef.current?.requestFullscreen().catch((err) => {
-        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
-      });
+    const elem = arenaRef.current;
+    if (!elem) return;
+
+    const isCurrentlyFS = !!(document.fullscreenElement || (document as any).webkitFullscreenElement || isPseudoFullScreen);
+
+    if (!isCurrentlyFS) {
+      if (elem.requestFullscreen) {
+        elem.requestFullscreen().catch(() => setIsPseudoFullScreen(true));
+      } else if ((elem as any).webkitRequestFullscreen) {
+        (elem as any).webkitRequestFullscreen();
+      } else {
+        // Fallback for mobile devices (like iOS) that restrict div fullscreen
+        setIsPseudoFullScreen(true);
+      }
     } else {
-      document.exitFullscreen();
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
+      setIsPseudoFullScreen(false);
     }
   };
 
@@ -319,7 +342,11 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     if (liveSessionRef.current) liveSessionRef.current.then((s: any) => s.close()).catch(() => {});
     setIsRecording(false);
-    if (document.fullscreenElement) document.exitFullscreen();
+    if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
+    }
+    setIsPseudoFullScreen(false);
   };
 
   const analyzeSpeech = async () => {
@@ -337,7 +364,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      setError("Audit generation failed. Please try a shorter recording or ensure higher signal-to-noise ratio.");
+      setError("Audit generation failed. Signal processing interrupted.");
       setIsAnalyzing(false);
     }
   };
@@ -347,6 +374,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     setContrast(100);
     setSaturation(100);
   };
+
+  const inFullScreenMode = isFullScreen || isPseudoFullScreen;
 
   return (
     <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
@@ -377,8 +406,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       <div 
         ref={arenaRef}
         className={`relative bg-slate-950 overflow-hidden shadow-xl md:shadow-2xl border-slate-900 transition-all duration-300 ${
-          isFullScreen 
-          ? 'w-full h-screen border-0 rounded-0' 
+          inFullScreenMode 
+          ? 'fixed inset-0 z-[100] w-screen h-screen border-0 rounded-none' 
           : 'rounded-[1.5rem] md:rounded-[2.5rem] border-2 md:border-4 aspect-[4/3] md:aspect-[16/10]'
         } group`}
       >
@@ -424,7 +453,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         )}
 
         {/* View Controls & Full Screen Toggle */}
-        <div className="absolute right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-3 z-40">
+        <div className={`absolute right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-3 z-40 ${inFullScreenMode ? 'pb-20' : ''}`}>
           <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-2">
             {[
               { id: 'wide', icon: Monitor, label: 'WIDE' },
@@ -449,10 +478,10 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
           <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-1 md:gap-2">
               <button 
                 onClick={toggleFullScreen} 
-                className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${isFullScreen ? 'bg-green-600' : 'hover:bg-white/10'}`}
-                title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}
+                className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${inFullScreenMode ? 'bg-green-600' : 'hover:bg-white/10'}`}
+                title={inFullScreenMode ? "Exit Full Screen" : "Enter Full Screen"}
               >
-                {isFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                {inFullScreenMode ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
               </button>
               <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomIn size={18} /></button>
               <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomOut size={18} /></button>
@@ -488,11 +517,21 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
           </div>
         )}
 
+        {/* Pseudo-FullScreen Exit Button (Floating for mobile) */}
+        {isPseudoFullScreen && (
+          <button 
+            onClick={stopRecording}
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-red-600 text-white rounded-full font-black text-xs uppercase tracking-widest shadow-2xl flex items-center gap-2"
+          >
+            <Square size={14} fill="currentColor" /> Finish Address
+          </button>
+        )}
+
         {/* Lower Third Transcript */}
-        <div className={`absolute bottom-0 inset-x-0 p-4 md:p-10 bg-gradient-to-t from-black via-black/40 to-transparent z-30 transition-all ${isFullScreen ? 'pb-16' : ''}`}>
+        <div className={`absolute bottom-0 inset-x-0 p-4 md:p-10 bg-gradient-to-t from-black via-black/40 to-transparent z-30 transition-all ${inFullScreenMode ? 'pb-16' : ''}`}>
           <div className="max-w-4xl mx-auto text-center">
              <div className="h-20 md:h-32 overflow-y-auto custom-scrollbar flex items-end justify-center">
-                <p className={`font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-2xl ${isFullScreen ? 'text-2xl md:text-4xl' : 'text-lg md:text-2xl'}`}>
+                <p className={`font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-2xl ${inFullScreenMode ? 'text-2xl md:text-4xl' : 'text-lg md:text-2xl'}`}>
                   {liveTranscript || (isRecording ? "Transmitting high-fidelity audio signal..." : "")}
                 </p>
                 <div ref={transcriptEndRef} />
@@ -502,43 +541,45 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       </div>
 
       {/* Control Area */}
-      <div className="flex flex-col items-center gap-4 pb-20 md:pb-12">
-        <div className="w-full bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center gap-6 md:gap-10">
-          <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
-             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Scenario</label>
-             <select value={scenario} disabled={isRecording} onChange={(e) => setScenario(e.target.value as NYSCScenario)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
-               {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
-             </select>
-          </div>
-          <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
-             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Leadership Tone</label>
-             <select value={leadershipStyle} disabled={isRecording} onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
-               {Object.values(LeadershipStyle).map(s => <option key={s} value={s}>{s}</option>)}
-             </select>
-          </div>
-          <div className="w-full md:w-auto flex justify-center flex-1">
-            {!isRecording && !audioBlob && (
-               <button onClick={startRecording} className="w-full md:w-auto px-10 py-4 bg-slate-900 text-white rounded-2xl font-black hover:bg-slate-800 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base">
-                 <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center"><Play size={16} fill="currentColor" className="ml-0.5" /></div>
-                 Start Address
-               </button>
-            )}
-            {isRecording && (
-               <button onClick={stopRecording} className="w-full md:w-auto px-10 py-4 bg-red-600 text-white rounded-2xl font-black hover:bg-red-700 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base animate-pulse">
-                 <Square size={16} fill="currentColor" /> Conclude Address
-               </button>
-            )}
-            {audioBlob && !isRecording && (
-              <div className="w-full md:w-auto flex items-center gap-3 flex-1">
-                <button onClick={() => { setAudioBlob(null); setLiveTranscript(""); }} className="px-5 py-4 text-slate-400 font-black hover:text-slate-900 text-xs tracking-widest uppercase">Discard</button>
-                <button onClick={analyzeSpeech} disabled={isAnalyzing} className="flex-1 px-10 py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 shadow-xl transition-all active:scale-95">
-                  {isAnalyzing ? "Analyzing High-Fidelity Signal..." : "Generate Pro Audit"}
-                </button>
-              </div>
-            )}
+      {!inFullScreenMode && (
+        <div className="flex flex-col items-center gap-4 pb-20 md:pb-12">
+          <div className="w-full bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center gap-6 md:gap-10">
+            <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
+               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Scenario</label>
+               <select value={scenario} disabled={isRecording} onChange={(e) => setScenario(e.target.value as NYSCScenario)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
+                 {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
+               </select>
+            </div>
+            <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
+               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Leadership Tone</label>
+               <select value={leadershipStyle} disabled={isRecording} onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
+                 {Object.values(LeadershipStyle).map(s => <option key={s} value={s}>{s}</option>)}
+               </select>
+            </div>
+            <div className="w-full md:w-auto flex justify-center flex-1">
+              {!isRecording && !audioBlob && (
+                 <button onClick={startRecording} className="w-full md:w-auto px-10 py-4 bg-slate-900 text-white rounded-2xl font-black hover:bg-slate-800 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base">
+                   <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center"><Play size={16} fill="currentColor" className="ml-0.5" /></div>
+                   Start Address
+                 </button>
+              )}
+              {isRecording && (
+                 <button onClick={stopRecording} className="w-full md:w-auto px-10 py-4 bg-red-600 text-white rounded-2xl font-black hover:bg-red-700 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base animate-pulse">
+                   <Square size={16} fill="currentColor" /> Conclude Address
+                 </button>
+              )}
+              {audioBlob && !isRecording && (
+                <div className="w-full md:w-auto flex items-center gap-3 flex-1">
+                  <button onClick={() => { setAudioBlob(null); setLiveTranscript(""); }} className="px-5 py-4 text-slate-400 font-black hover:text-slate-900 text-xs tracking-widest uppercase">Discard</button>
+                  <button onClick={analyzeSpeech} disabled={isAnalyzing} className="flex-1 px-10 py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 shadow-xl transition-all active:scale-95">
+                    {isAnalyzing ? "Analyzing High-Fidelity Signal..." : "Generate Pro Audit"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
