@@ -12,17 +12,17 @@ export async function analyzeNYSCSpeech(
   const model = 'gemini-3-pro-preview'; 
   
   const prompt = `
-    You are the Senior Executive Speech Analyst for the Director General of the NYSC.
+    Analyze this audio for an NYSC Executive Speech Audit.
     
-    Context: A high-ranking official is delivering a "${scenario}" using a "${leadershipStyle}" leadership style.
+    Scenario: ${scenario}
+    Leadership Style: ${leadershipStyle}
     
-    Required Actions:
-    1. PRECISION TRANSCRIPTION: Provide a verbatim, word-for-word transcript. 
-    2. DEEP NOISE FILTERING: The audio may have significant environmental noise (wind, distant crowds, fan hum). You must isolate the human voice, suppress all background artifacts, and transcribe ONLY the intended spoken content.
-    3. ADMINISTRATIVE AUDIT: Detect correct usage of NYSC terms: PPA, SAED, LGI, CDM, and Corper.
-    4. COMMAND PRESENCE: Evaluate administrative authority. 
+    Tasks:
+    1. Verbatim Transcription: Capture exactly what was said. Support multi-lingual nuances if detected.
+    2. Administrative Audit: Check for NYSC terms (PPA, SAED, LGI, DG, Corper).
+    3. Metrics: Evaluate Tone, Command, Pacing, and Clarity.
     
-    Return the analysis strictly in JSON format.
+    Return strictly JSON.
   `;
 
   try {
@@ -35,7 +35,7 @@ export async function analyzeNYSCSpeech(
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 4000 },
+        thinkingConfig: { thinkingBudget: 8000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -66,8 +66,14 @@ export async function analyzeNYSCSpeech(
     });
 
     const text = response.text;
-    if (!text) throw new Error("Empty response from AI");
-    return JSON.parse(text.trim());
+    if (!text) throw new Error("Empty response from AI engine.");
+    
+    try {
+      return JSON.parse(text.trim());
+    } catch (parseErr) {
+      console.error("JSON Parse Error. Raw Text:", text);
+      throw new Error("Administrative data formatting failed.");
+    }
   } catch (error: any) {
     console.error("Pro Speech analysis failed:", error);
     throw error;

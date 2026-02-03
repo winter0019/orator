@@ -34,7 +34,8 @@ import {
   RefreshCw,
   Info,
   ExternalLink,
-  CheckCircle2
+  CheckCircle2,
+  Lightbulb
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -43,6 +44,7 @@ import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
 // --- Constants ---
 const FRAME_RATE = 1; 
 const JPEG_QUALITY = 0.4;
+const MIN_RECORDING_MS = 2000; // 2 seconds minimum for a valid audit
 
 // --- Utils ---
 function encode(bytes: Uint8Array) {
@@ -216,13 +218,13 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   const [error, setError] = useState<string | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState<string>("");
-  const [coachingAlerts, setCoachingAlerts] = useState<CoachingAlert[]>([]);
   const [wpm, setWpm] = useState<number>(0);
   
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'wide' | 'focused' | 'closeup'>('wide');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isPseudoFullScreen, setIsPseudoFullScreen] = useState(false);
+  const [isSoftboxActive, setIsSoftboxActive] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
   const [brightness, setBrightness] = useState(100);
@@ -297,8 +299,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     setError(null);
     setShowDiagnostics(false);
     setLiveTranscript("");
-    setCoachingAlerts([]);
     setWpm(0);
+    setAudioBlob(null);
     currentTranscriptRef.current = "";
     
     try {
@@ -330,15 +332,11 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       audioContextRef.current = audioCtx;
       startTimeRef.current = Date.now();
 
-      // Advanced Audio Processing Chain for Noise Filtering
       const source = audioCtx.createMediaStreamSource(stream);
-      
-      // High-pass filter to remove low-frequency rumble (fan noise, background hum)
       const highPassFilter = audioCtx.createBiquadFilter();
       highPassFilter.type = 'highpass';
-      highPassFilter.frequency.setValueAtTime(100, audioCtx.currentTime); // Filter everything below 100Hz
+      highPassFilter.frequency.setValueAtTime(100, audioCtx.currentTime); 
       
-      // Dynamic compressor to normalize levels
       const compressor = audioCtx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-50, audioCtx.currentTime);
       compressor.knee.setValueAtTime(40, audioCtx.currentTime);
@@ -358,7 +356,6 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
               sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
             };
             
-            // Connect nodes: Source -> HighPass -> Compressor -> Processor
             source.connect(highPassFilter);
             highPassFilter.connect(compressor);
             compressor.connect(scriptProcessor);
@@ -401,61 +398,84 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: 'You are an NYSC Executive Speech Coach. NOISE SUPPRESSION MODE: ENABLED. Transcribe accurately for administrative terminologies.'
+          systemInstruction: 'You are an NYSC Executive Speech Coach. Focus on administrative oratory and command impact.'
         }
       });
 
       liveSessionRef.current = sessionPromise;
       
-      let mimeType = 'audio/webm';
-      if (typeof MediaRecorder.isTypeSupported === 'function') {
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'audio/mp4';
-          if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
-        }
-      } else {
-        mimeType = '';
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
       }
 
-      const recorderOptions = mimeType ? { mimeType } : undefined;
-      const recorder = new MediaRecorder(stream, recorderOptions);
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const chunks: BlobPart[] = [];
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-      recorder.onstop = () => setAudioBlob(new Blob(chunks, { type: recorder.mimeType }));
-      recorder.start();
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+      
+      recorder.onstop = () => {
+        const finalBlob = new Blob(chunks, { type: recorder.mimeType });
+        console.log("Recording stopped. Final blob size:", finalBlob.size);
+        setAudioBlob(finalBlob);
+      };
+      
+      recorder.start(1000); // Collect data every 1s
       setMediaRecorder(recorder);
       setIsRecording(true);
 
     } catch (err: any) {
       console.error(err);
       setIsRecording(false);
-      setError("System Access Denied. NYSC Oratory Pro requires microphone and camera access to provide executive analysis.");
+      setError("System Access Denied. NYSC Oratory Pro requires microphone and camera access.");
       setShowDiagnostics(true);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorder) mediaRecorder.stop();
+    if (!isRecording) return;
+    
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    
     if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
     if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
     if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     if (liveSessionRef.current) liveSessionRef.current.then((s: any) => s.close()).catch(() => {});
+    
     setIsRecording(false);
+    
     if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
-        if (document.exitFullscreen) document.exitFullscreen();
+        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
         else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
     }
     setIsPseudoFullScreen(false);
   };
 
   const analyzeSpeech = async () => {
-    if (!audioBlob) return;
+    if (!audioBlob) {
+      setError("Signal Capture Error: No audio data detected. Please record again.");
+      return;
+    }
+
+    const duration = Date.now() - startTimeRef.current;
+    if (duration < MIN_RECORDING_MS) {
+      setError("Signal Too Weak: Recording was too short for executive analysis.");
+      setAudioBlob(null);
+      return;
+    }
+
     setIsAnalyzing(true);
     setError(null);
+    
     try {
       const base64data = await blobToBase64(audioBlob);
       const analysis = await analyzeNYSCSpeech(base64data, scenario, leadershipStyle, audioBlob.type);
+      
       onAnalysisComplete({
         id: Date.now().toString(),
         date: new Date().toLocaleString(),
@@ -464,7 +484,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      setError("Audit generation failed. Signal processing interrupted.");
+      console.error("Analysis execution error:", err);
+      setError("Audit generation failed. Signal processing interrupted by network or model timeout.");
       setIsAnalyzing(false);
     }
   };
@@ -514,11 +535,11 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       {/* Arena Stage Container */}
       <div 
         ref={arenaRef}
-        className={`relative bg-slate-950 overflow-hidden shadow-xl md:shadow-2xl border-slate-900 transition-all duration-300 ${
+        className={`relative bg-slate-950 overflow-hidden shadow-xl md:shadow-2xl transition-all duration-300 ${
           inFullScreenMode 
           ? 'fixed inset-0 z-[100] w-screen h-screen border-0 rounded-none' 
-          : 'rounded-[1.5rem] md:rounded-[2.5rem] border-2 md:border-4 aspect-[4/3] md:aspect-[16/10]'
-        } group`}
+          : 'rounded-[1.5rem] md:rounded-[2.5rem] aspect-[4/3] md:aspect-[16/10]'
+        } group ${isSoftboxActive ? 'ring-[20px] md:ring-[40px] ring-white ring-inset shadow-[0_0_100px_rgba(255,255,255,0.8)]' : 'border-2 md:border-4 border-slate-900'}`}
       >
         <div className="w-full h-full overflow-hidden flex items-center justify-center bg-black">
           <video 
@@ -537,7 +558,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                  <Mic size={48} className="text-green-500" />
                </div>
                <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">System Ready</h2>
-               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Noise filters, frequency gates, and administrative models are primed. Click 'Start Address' below.</p>
+               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Neural filters, frequency gates, and administrative models are primed. Click 'Start Address' below.</p>
                {error && <p className="text-amber-400 text-[10px] font-black uppercase tracking-widest animate-pulse mt-4">Hardware Link Failure Detected</p>}
             </div>
           )}
@@ -593,6 +614,13 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
               >
                 {inFullScreenMode ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
               </button>
+              <button 
+                onClick={() => setIsSoftboxActive(!isSoftboxActive)} 
+                className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${isSoftboxActive ? 'bg-amber-400 text-slate-900 shadow-[0_0_20px_rgba(251,191,36,0.5)]' : 'hover:bg-white/10'}`}
+                title="Night Mode / Softbox"
+              >
+                <Lightbulb size={18} fill={isSoftboxActive ? "currentColor" : "none"} />
+              </button>
               <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomIn size={18} /></button>
               <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomOut size={18} /></button>
               <button onClick={() => setShowSettings(!showSettings)} className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${showSettings ? 'bg-green-600' : 'hover:bg-white/10'}`}><Sliders size={18} /></button>
@@ -625,16 +653,6 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
               <button onClick={resetCameraSettings} className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black text-white uppercase tracking-widest flex items-center justify-center gap-2 border border-white/5"><RotateCcw size={14} /> Reset</button>
             </div>
           </div>
-        )}
-
-        {/* Pseudo-FullScreen Exit Button */}
-        {isPseudoFullScreen && (
-          <button 
-            onClick={stopRecording}
-            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-red-600 text-white rounded-full font-black text-xs uppercase tracking-widest shadow-2xl flex items-center gap-2"
-          >
-            <Square size={14} fill="currentColor" /> Finish Address
-          </button>
         )}
 
         {/* Lower Third Transcript */}
