@@ -22,7 +22,14 @@ import {
   Monitor,
   Settings,
   Menu,
-  X
+  X,
+  Sliders,
+  RotateCcw,
+  Sun,
+  Contrast,
+  Palette,
+  Camera,
+  Waves
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -109,8 +116,8 @@ const MetricCard: React.FC<{ label: string, score: number, feedback: string }> =
   </div>
 );
 
-// --- Practice Room Component ---
-const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => void }> = ({ onAnalysisComplete }) => {
+// --- Address Arena Component ---
+const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => void }> = ({ onAnalysisComplete }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [scenario, setScenario] = useState<NYSCScenario>(NYSCScenario.CAMP_ADDRESS);
   const [leadershipStyle, setLeadershipStyle] = useState<LeadershipStyle>(LeadershipStyle.COMMANDING);
@@ -124,6 +131,11 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'wide' | 'focused' | 'closeup'>('wide');
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
+  const [saturation, setSaturation] = useState(100);
 
   const liveSessionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -163,8 +175,17 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: true, 
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } } 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        }, 
+        video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "user"
+        }
       });
       
       streamRef.current = stream;
@@ -181,18 +202,30 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       audioContextRef.current = audioCtx;
       startTimeRef.current = Date.now();
 
+      // Advanced Audio Processing Chain for Noise Reduction
+      const source = audioCtx.createMediaStreamSource(stream);
+      const compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-50, audioCtx.currentTime);
+      compressor.knee.setValueAtTime(40, audioCtx.currentTime);
+      compressor.ratio.setValueAtTime(12, audioCtx.currentTime);
+      compressor.attack.setValueAtTime(0, audioCtx.currentTime);
+      compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+
+      const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+      
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
-            const source = audioCtx.createMediaStreamSource(stream);
-            const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createBlob(inputData);
               sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
             };
-            source.connect(scriptProcessor);
+            
+            // Connect chain: Source -> Compressor -> ScriptProcessor -> Output
+            source.connect(compressor);
+            compressor.connect(scriptProcessor);
             scriptProcessor.connect(audioCtx.destination);
 
             frameIntervalRef.current = window.setInterval(() => {
@@ -201,6 +234,7 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                 if (ctx) {
                   canvasRef.current.width = videoRef.current.videoWidth || 640;
                   canvasRef.current.height = videoRef.current.videoHeight || 480;
+                  ctx.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
                   ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
                   canvasRef.current.toBlob(async (blob) => {
                     if (blob) {
@@ -221,36 +255,44 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
               const words = currentTranscriptRef.current.trim().split(/\s+/).length;
               setWpm(Math.round(words / Math.max(elapsedMins, 0.01)));
             }
-            const modelText = message.serverContent?.modelTurn?.parts[0]?.text;
-            if (modelText && modelText.includes("LEADERSHIP:")) {
-              addCoachingAlert('leadership', modelText.replace("LEADERSHIP:", "").trim());
-            }
           },
           onerror: (e: any) => {
             console.error(e);
-            setError("Connectivity issue detected. Ensure microphone and camera are active.");
+            setError("Stream interrupted. Ensure a stable network connection.");
             stopRecording();
           },
         },
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: 'You are an NYSC Executive Speech Coach. Evaluate the Zonal Inspector based on authority, clarity, and administrative terminology.'
+          systemInstruction: 'You are an NYSC Executive Speech Coach. HIGH PRIORITY: Focus on word-for-word accuracy. Ignore background noise, ambient sounds, and non-speech audio. Transcribe only the spoken word. Identify administrative terms like PPA, SAED, LGI, and CDM with zero tolerance for errors.'
         }
       });
 
       liveSessionRef.current = sessionPromise;
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/mp4';
+          if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
+        }
+      } else {
+        mimeType = '';
+      }
+
+      const recorderOptions = mimeType ? { mimeType } : undefined;
+      const recorder = new MediaRecorder(stream, recorderOptions);
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = (e) => chunks.push(e.data);
-      recorder.onstop = () => setAudioBlob(new Blob(chunks, { type: 'audio/webm' }));
+      recorder.onstop = () => setAudioBlob(new Blob(chunks, { type: recorder.mimeType }));
       recorder.start();
       setMediaRecorder(recorder);
       setIsRecording(true);
 
     } catch (err: any) {
       setIsRecording(false);
-      setError("System Access Denied. Microphone and Camera permissions are required.");
+      setError("System Access Denied. Please ensure Microphone and Camera permissions are granted in your device settings.");
     }
   };
 
@@ -270,7 +312,7 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     setError(null);
     try {
       const base64data = await blobToBase64(audioBlob);
-      const analysis = await analyzeNYSCSpeech(base64data, scenario, leadershipStyle);
+      const analysis = await analyzeNYSCSpeech(base64data, scenario, leadershipStyle, audioBlob.type);
       onAnalysisComplete({
         id: Date.now().toString(),
         date: new Date().toLocaleString(),
@@ -279,43 +321,86 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      setError("Audit generation timed out. Try a shorter segment.");
+      setError("Audit generation failed. High noise floors can sometimes affect deep analysis. Try again in a quieter setting.");
       setIsAnalyzing(false);
     }
+  };
+
+  const resetCameraSettings = () => {
+    setBrightness(100);
+    setContrast(100);
+    setSaturation(100);
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 px-1">
         <div>
-          <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Executive Stage</h1>
+          <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Address Arena</h1>
           <p className="text-xs md:text-sm text-slate-500 font-medium italic">Administrative Oratory Protocol Active.</p>
         </div>
-        <div className="hidden md:flex items-center gap-3">
-           <div className="px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase rounded-full border border-green-200">System Ready</div>
-        </div>
+        {!isRecording && !audioBlob && (
+           <div className="flex items-center gap-3">
+             <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-full">
+               <Camera size={12} /> Camera Check
+             </div>
+             <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-full">
+               <Mic size={12} /> Mic Check
+             </div>
+           </div>
+        )}
       </header>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 p-4 md:p-5 rounded-xl md:rounded-2xl flex items-center gap-3 text-red-700 font-bold text-xs md:text-sm">
+        <div className="bg-red-50 border border-red-200 p-4 md:p-5 rounded-xl md:rounded-2xl flex items-center gap-3 text-red-700 font-bold text-xs md:text-sm animate-in shake duration-300">
            <AlertCircle size={18} className="shrink-0" /> <p>{error}</p>
         </div>
       )}
 
-      {/* Unified Stage */}
+      {/* Arena Stage */}
       <div className="relative bg-slate-950 rounded-[1.5rem] md:rounded-[2.5rem] overflow-hidden shadow-xl md:shadow-2xl border-2 md:border-4 border-slate-900 aspect-[4/3] md:aspect-[16/10] group">
         <div className="w-full h-full overflow-hidden flex items-center justify-center bg-black">
           <video 
             ref={videoRef} 
             muted 
             playsInline 
-            style={{ transform: `scaleX(-1) scale(${zoomLevel})` }}
+            style={{ 
+              transform: `scaleX(-1) scale(${zoomLevel})`,
+              filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`
+            }}
             className={`w-full h-full object-cover transition-all duration-700 origin-center ${isRecording ? 'opacity-100' : 'opacity-20'}`} 
           />
+          {!isRecording && !audioBlob && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center p-8 bg-slate-900/60 backdrop-blur-sm">
+               <div className="p-6 bg-white/5 rounded-full border border-white/10 mb-2">
+                 <Mic size={48} className="text-green-500" />
+               </div>
+               <h2 className="text-xl md:text-2xl font-black text-white">Ready for Address</h2>
+               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Permissions will be requested when you click 'Start Address'. Enhanced noise filtering is active by default.</p>
+            </div>
+          )}
         </div>
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* View Controls HUD (Right for touch, floating) */}
+        {/* HUD Stats */}
+        {isRecording && (
+          <div className="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none z-30">
+            <div className="flex items-center gap-2 bg-red-600 px-3 py-1 rounded-full shadow-lg">
+              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span className="text-[9px] font-black text-white uppercase tracking-widest">Live Audit</span>
+            </div>
+            <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
+              <Waves size={10} className="text-blue-400" />
+              <span className="text-[9px] font-black uppercase tracking-tighter">Neural Noise Filter Active</span>
+            </div>
+            <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
+              <Activity size={10} className="text-green-400" />
+              <span className="text-[9px] font-black uppercase">{wpm} WPM</span>
+            </div>
+          </div>
+        )}
+
+        {/* View Controls */}
         {isRecording && (
           <div className="absolute right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-3 z-40">
             <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-2">
@@ -342,30 +427,45 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
             <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-1 md:gap-2">
                <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomIn size={18} /></button>
                <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomOut size={18} /></button>
+               <button onClick={() => setShowSettings(!showSettings)} className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${showSettings ? 'bg-green-600' : 'hover:bg-white/10'}`}><Sliders size={18} /></button>
             </div>
           </div>
         )}
 
-        {/* HUD Stats */}
-        {isRecording && (
-          <div className="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none z-30">
-            <div className="flex items-center gap-2 bg-red-600 px-3 py-1 rounded-full shadow-lg">
-              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              <span className="text-[9px] font-black text-white uppercase tracking-widest">Live</span>
+        {/* Tuning Menu */}
+        {isRecording && showSettings && (
+          <div className="absolute bottom-24 right-4 md:right-32 bg-slate-900/95 backdrop-blur-2xl p-6 rounded-3xl border border-white/10 w-64 md:w-80 shadow-2xl z-50 animate-in slide-in-from-bottom-5 duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2">
+                <Settings size={14} className="text-green-500" /> Optical Calibration
+              </h3>
+              <button onClick={() => setShowSettings(false)} className="text-white/40 hover:text-white"><X size={18} /></button>
             </div>
-            <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
-              <Activity size={10} className="text-green-400" />
-              <span className="text-[9px] font-black uppercase">{wpm} WPM</span>
+            
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span className="flex items-center gap-2"><Sun size={14} /> Brightness</span><span className="text-green-500">{brightness}%</span></div>
+                <input type="range" min="50" max="200" value={brightness} onChange={(e) => setBrightness(parseInt(e.target.value))} className="w-full h-1 appearance-none bg-white/10 rounded-full cursor-pointer" />
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span className="flex items-center gap-2"><Contrast size={14} /> Contrast</span><span className="text-green-500">{contrast}%</span></div>
+                <input type="range" min="50" max="200" value={contrast} onChange={(e) => setContrast(parseInt(e.target.value))} className="w-full h-1 appearance-none bg-white/10 rounded-full cursor-pointer" />
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span className="flex items-center gap-2"><Palette size={14} /> Saturation</span><span className="text-green-500">{saturation}%</span></div>
+                <input type="range" min="0" max="200" value={saturation} onChange={(e) => setSaturation(parseInt(e.target.value))} className="w-full h-1 appearance-none bg-white/10 rounded-full cursor-pointer" />
+              </div>
+              <button onClick={resetCameraSettings} className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black text-white uppercase tracking-widest flex items-center justify-center gap-2 border border-white/5"><RotateCcw size={14} /> Reset</button>
             </div>
           </div>
         )}
 
-        {/* Lower Third Transcription */}
+        {/* Lower Third */}
         <div className="absolute bottom-0 inset-x-0 p-4 md:p-10 bg-gradient-to-t from-black via-black/40 to-transparent z-30">
-          <div className="max-w-3xl mx-auto">
-             <div className="h-20 md:h-28 overflow-y-auto custom-scrollbar flex items-end">
-                <p className="text-lg md:text-2xl font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-xl w-full">
-                  {liveTranscript || (isRecording ? "Establishing briefing channel..." : "Awaiting transmission...")}
+          <div className="max-w-3xl mx-auto text-center">
+             <div className="h-20 md:h-28 overflow-y-auto custom-scrollbar flex items-end justify-center">
+                <p className="text-lg md:text-2xl font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-xl">
+                  {liveTranscript || (isRecording ? "Transmitting audio signals..." : "")}
                 </p>
                 <div ref={transcriptEndRef} />
              </div>
@@ -373,54 +473,38 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         </div>
       </div>
 
-      {/* Control Panel Stacking */}
+      {/* Control Area */}
       <div className="flex flex-col items-center gap-4 pb-20 md:pb-12">
         <div className="w-full bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center gap-6 md:gap-10">
           <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Scenario</label>
-             <select 
-               value={scenario} 
-               disabled={isRecording}
-               onChange={(e) => setScenario(e.target.value as NYSCScenario)}
-               className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer"
-             >
+             <select value={scenario} disabled={isRecording} onChange={(e) => setScenario(e.target.value as NYSCScenario)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
                {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
              </select>
           </div>
-
           <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
-             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Tone</label>
-             <select 
-               value={leadershipStyle} 
-               disabled={isRecording}
-               onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)}
-               className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer"
-             >
+             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Leadership Tone</label>
+             <select value={leadershipStyle} disabled={isRecording} onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
                {Object.values(LeadershipStyle).map(s => <option key={s} value={s}>{s}</option>)}
              </select>
           </div>
-
-          <div className="w-full md:w-auto flex justify-center">
+          <div className="w-full md:w-auto flex justify-center flex-1">
             {!isRecording && !audioBlob && (
                <button onClick={startRecording} className="w-full md:w-auto px-10 py-4 bg-slate-900 text-white rounded-2xl font-black hover:bg-slate-800 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base">
                  <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center"><Play size={16} fill="currentColor" className="ml-0.5" /></div>
-                 Open Briefing
+                 Start Address
                </button>
             )}
-
             {isRecording && (
                <button onClick={stopRecording} className="w-full md:w-auto px-10 py-4 bg-red-600 text-white rounded-2xl font-black hover:bg-red-700 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base animate-pulse">
-                 <Square size={16} fill="currentColor" /> Conclude
+                 <Square size={16} fill="currentColor" /> Conclude Address
                </button>
             )}
-
             {audioBlob && !isRecording && (
-              <div className="w-full md:w-auto flex items-center gap-3">
-                <button onClick={() => { setAudioBlob(null); setLiveTranscript(""); }} className="px-5 py-4 text-slate-400 font-black hover:text-slate-900 text-xs tracking-widest uppercase">
-                  Abort
-                </button>
-                <button onClick={analyzeSpeech} disabled={isAnalyzing} className="flex-1 md:flex-none px-10 py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 shadow-xl transition-all active:scale-95">
-                  {isAnalyzing ? "Processing..." : "Generate Audit"}
+              <div className="w-full md:w-auto flex items-center gap-3 flex-1">
+                <button onClick={() => { setAudioBlob(null); setLiveTranscript(""); }} className="px-5 py-4 text-slate-400 font-black hover:text-slate-900 text-xs tracking-widest uppercase">Discard</button>
+                <button onClick={analyzeSpeech} disabled={isAnalyzing} className="flex-1 px-10 py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 shadow-xl transition-all active:scale-95">
+                  {isAnalyzing ? "Analyzing High-Fidelity Signal..." : "Generate Pro Audit"}
                 </button>
               </div>
             )}
@@ -451,14 +535,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 selection:bg-green-100">
-      {/* Desktop Sidebar */}
+      {/* Sidebar */}
       <aside className="hidden md:flex w-72 bg-slate-900 p-8 flex-col fixed h-full z-50 border-r border-slate-800">
         <div className="flex items-center gap-4 mb-16">
           <div className="bg-green-600 p-3 rounded-2xl shadow-2xl shadow-green-900/40"><ShieldCheck className="text-white" size={32} /></div>
-          <h1 className="text-2xl font-black text-white uppercase tracking-tighter">NYSC <span className="text-green-500">PRO</span></h1>
+          <h1 className="text-2xl font-black text-white uppercase tracking-tighter">NYSC <span className="text-green-500">Pro</span></h1>
         </div>
         <nav className="space-y-3 flex-1">
-          <NavItem icon={LayoutDashboard} label="Strategic Hub" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <NavItem icon={LayoutDashboard} label="Address Arena" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <NavItem icon={Mic} label="Executive Stage" active={activeTab === 'practice'} onClick={() => setActiveTab('practice')} />
           <NavItem icon={GraduationCap} label="Policy Archive" active={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')} />
         </nav>
@@ -466,7 +550,7 @@ export default function App() {
            <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-slate-700 flex items-center justify-center font-black text-white text-sm">AD</div>
               <div>
-                <p className="text-[10px] font-black text-white uppercase tracking-widest">Admin</p>
+                <p className="text-[10px] font-black text-white uppercase tracking-widest">Executive User</p>
                 <p className="text-[8px] font-black text-slate-500 uppercase">Zonal Inspectorate</p>
               </div>
            </div>
@@ -477,27 +561,24 @@ export default function App() {
       <header className="md:hidden flex items-center justify-between p-4 bg-slate-900 text-white sticky top-0 z-50">
         <div className="flex items-center gap-2">
            <div className="bg-green-600 p-1.5 rounded-lg"><ShieldCheck size={20} /></div>
-           <span className="font-black text-lg tracking-tighter">NYSC PRO</span>
+           <span className="font-black text-lg tracking-tighter">NYSC Pro</span>
         </div>
         <div className="text-[10px] font-black text-green-500 uppercase tracking-widest">Executive Level</div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 md:ml-72 min-h-screen p-4 md:p-16 overflow-y-auto">
+      {/* Main Content */}
+      <main className="flex-1 md:ml-72 min-h-screen p-4 md:p-16 overflow-y-auto pb-24 md:pb-16">
         {activeTab === 'dashboard' && <Dashboard records={sessions} />}
-        {activeTab === 'practice' && <PracticeRoom onAnalysisComplete={handleAnalysisComplete} />}
+        {activeTab === 'practice' && <AddressArena onAnalysisComplete={handleAnalysisComplete} />}
         {activeTab === 'knowledge' && <KnowledgeHub />}
         {activeTab === 'analysis' && selectedAnalysis && (
-          <AnalysisView 
-            record={selectedAnalysis} 
-            onBack={() => { setActiveTab('dashboard'); setSelectedAnalysis(null); }} 
-          />
+          <AnalysisView record={selectedAnalysis} onBack={() => { setActiveTab('dashboard'); setSelectedAnalysis(null); }} />
         )}
       </main>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-white/80 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around z-50 px-2 pb-safe">
-        <NavItem icon={LayoutDashboard} label="Hub" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} isMobile />
+      {/* Mobile Nav */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-white/80 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around z-50 px-2 pb-safe shadow-2xl">
+        <NavItem icon={LayoutDashboard} label="Arena" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} isMobile />
         <NavItem icon={Mic} label="Stage" active={activeTab === 'practice'} onClick={() => setActiveTab('practice')} isMobile />
         <NavItem icon={GraduationCap} label="Policy" active={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')} isMobile />
       </nav>
@@ -505,44 +586,37 @@ export default function App() {
   );
 }
 
-// --- Simplified Dashboard Component ---
+// --- Dashboard Component ---
 const Dashboard: React.FC<{ records: SessionRecord[] }> = ({ records }) => {
-  const avgScore = records.length > 0 
-    ? Math.round(records.reduce((acc, r) => acc + r.analysis.overallScore, 0) / records.length) 
-    : 0;
+  const avgScore = records.length > 0 ? Math.round(records.reduce((acc, r) => acc + r.analysis.overallScore, 0) / records.length) : 0;
   return (
     <div className="space-y-8 md:space-y-12 animate-in fade-in duration-1000">
       <div>
-        <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">Strategic Hub</h1>
-        <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg">Monitoring administrative presence.</p>
+        <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">Address Arena</h1>
+        <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg">Analyzing administrative oratory and command impact.</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-10">
         <div className="bg-white p-6 md:p-12 rounded-[2rem] md:rounded-[4rem] border border-slate-200 shadow-xl relative overflow-hidden group">
           <Award size={48} className="absolute -top-2 -right-2 text-green-100 rotate-12 md:size-20" />
-          <p className="text-[9px] md:text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 md:mb-4">Command Quotient</p>
+          <p className="text-[9px] md:text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 md:mb-4">Average Signal Score</p>
           <h3 className="text-5xl md:text-8xl font-black text-slate-900 tracking-tighter">{avgScore}%</h3>
         </div>
         <div className="bg-slate-900 p-6 md:p-12 rounded-[2rem] md:rounded-[4rem] shadow-2xl text-white group overflow-hidden relative">
           <History size={48} className="absolute -top-2 -right-2 text-white/5 -rotate-12 md:size-20" />
-          <p className="text-[9px] md:text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 md:mb-4">Total Sessions</p>
+          <p className="text-[9px] md:text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 md:mb-4">Executive Sessions</p>
           <h3 className="text-5xl md:text-8xl font-black text-white tracking-tighter">{records.length}</h3>
         </div>
       </div>
       
       {records.length > 0 && (
         <section className="space-y-4 md:space-y-8">
-          <h2 className="text-xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3"><Monitor size={20} className="text-green-600" /> Archives</h2>
+          <h2 className="text-xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3"><Monitor size={20} className="text-green-600" /> Administrative Archives</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {records.slice(0, 4).map(r => (
               <div key={r.id} className="bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-100 flex items-center justify-between group hover:border-green-300 transition-all cursor-pointer shadow-sm">
                 <div className="flex items-center gap-4 md:gap-6">
-                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-[1.5rem] flex items-center justify-center font-black text-base md:text-xl ${r.analysis.overallScore > 75 ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                    {r.analysis.overallScore}
-                  </div>
-                  <div>
-                    <p className="font-black text-slate-900 text-sm md:text-lg truncate max-w-[150px] md:max-w-[200px]">{r.scenario}</p>
-                    <p className="text-[9px] md:text-[10px] text-slate-400 font-black uppercase">{r.date.split(',')[0]}</p>
-                  </div>
+                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-[1.5rem] flex items-center justify-center font-black text-base md:text-xl ${r.analysis.overallScore > 75 ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{r.analysis.overallScore}</div>
+                  <div><p className="font-black text-slate-900 text-sm md:text-lg truncate max-w-[150px] md:max-w-[200px]">{r.scenario}</p><p className="text-[9px] md:text-[10px] text-slate-400 font-black uppercase">{r.date.split(',')[0]}</p></div>
                 </div>
                 <ChevronRight size={20} className="text-slate-200 group-hover:text-green-600 transition-all" />
               </div>
@@ -558,16 +632,12 @@ const AnalysisView: React.FC<{ record: SessionRecord, onBack: () => void }> = ({
   const analysis = record.analysis;
   return (
     <div className="space-y-8 md:space-y-12 animate-in zoom-in-95 duration-700 pb-24">
-      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 font-black text-[10px] md:text-[11px] uppercase tracking-widest hover:text-slate-900 transition-all bg-white px-5 md:px-8 py-3 md:py-4 rounded-full border border-slate-200 shadow-md">
-        <ChevronRight size={16} className="rotate-180" /> Operational Return
-      </button>
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 font-black text-[10px] md:text-[11px] uppercase tracking-widest hover:text-slate-900 transition-all bg-white px-5 md:px-8 py-3 md:py-4 rounded-full border border-slate-200 shadow-md"><ChevronRight size={16} className="rotate-180" /> Return to Hub</button>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-12">
         <div className="lg:col-span-2 space-y-8 md:space-y-12">
           <section className="bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[4rem] border border-slate-200 shadow-xl">
-            <h2 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter mb-8 md:mb-16">Administrative Audit</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-10">
-              {analysis.metrics.map((m, i) => <MetricCard key={i} label={m.label} score={m.score} feedback={m.feedback} />)}
-            </div>
+            <h2 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter mb-8 md:mb-16">High-Fidelity Audit</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-10">{analysis.metrics.map((m, i) => <MetricCard key={i} label={m.label} score={m.score} feedback={m.feedback} />)}</div>
           </section>
           <section className="bg-slate-900 p-8 md:p-16 rounded-[2rem] md:rounded-[4.5rem] shadow-2xl">
             <h2 className="text-xl md:text-2xl font-black text-white mb-6 md:mb-10 tracking-tight">Signal Transcript</h2>
@@ -577,13 +647,11 @@ const AnalysisView: React.FC<{ record: SessionRecord, onBack: () => void }> = ({
         <div className="space-y-8 md:space-y-12">
           <div className="bg-gradient-to-br from-green-600 to-green-900 p-10 md:p-16 rounded-[2rem] md:rounded-[4rem] text-white shadow-2xl flex flex-col items-center">
             <h3 className="text-7xl md:text-9xl font-black mb-1 md:mb-2 tracking-tighter">{analysis.overallScore}%</h3>
-            <p className="text-[10px] md:text-[12px] font-black uppercase tracking-[0.3em] opacity-80 text-center">Final Signal Quality</p>
+            <p className="text-[10px] md:text-[12px] font-black uppercase tracking-[0.3em] opacity-80 text-center">Final Factor</p>
           </div>
           <div className="bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[3.5rem] border border-slate-200 shadow-2xl">
-             <h2 className="font-black text-slate-900 text-sm md:text-lg uppercase tracking-widest mb-6 md:mb-10 flex items-center gap-3 md:gap-4"><ShieldCheck size={24} className="text-green-600" /> Strengths</h2>
-             {analysis.strengths.map((s, i) => (
-               <div key={i} className="text-xs md:text-sm font-bold text-slate-700 bg-slate-50 p-4 md:p-6 rounded-2xl md:rounded-3xl mb-3 md:mb-4 border border-slate-100">{s}</div>
-             ))}
+             <h2 className="font-black text-slate-900 text-sm md:text-lg uppercase tracking-widest mb-6 md:mb-10 flex items-center gap-3 md:gap-4"><ShieldCheck size={24} className="text-green-600" /> Command Strengths</h2>
+             {analysis.strengths.map((s, i) => <div key={i} className="text-xs md:text-sm font-bold text-slate-700 bg-slate-50 p-4 md:p-6 rounded-2xl md:rounded-3xl mb-3 md:mb-4 border border-slate-100">{s}</div>)}
           </div>
         </div>
       </div>
@@ -595,13 +663,13 @@ const KnowledgeHub: React.FC = () => (
   <div className="space-y-8 md:space-y-12 animate-in slide-in-from-right-10 duration-1000 pb-20">
     <div>
       <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">Policy Archive</h1>
-      <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg italic">Strategic alignment with the NYSC Act.</p>
+      <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg italic">Strategic alignment with the NYSC Act (1993/2004).</p>
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
        {[
-         { title: 'NYSC Act 1993', desc: 'The operational foundation of corps management.', color: 'bg-green-100 text-green-700' },
-         { title: 'Bye-Laws 2024', desc: 'Administrative disciplinary and social guidelines.', color: 'bg-blue-100 text-blue-700' },
-         { title: 'Crisis Response', desc: 'Procedures for camp and field emergencies.', color: 'bg-purple-100 text-purple-700' }
+         { title: 'NYSC Act 1993', desc: 'The operational foundation of corps management and administrative authority.', color: 'bg-green-100 text-green-700' },
+         { title: 'Bye-Laws 2024', desc: 'Administrative disciplinary and social guidelines for corps members.', color: 'bg-blue-100 text-blue-700' },
+         { title: 'Crisis Response', desc: 'Standard operating procedures for field office emergencies.', color: 'bg-purple-100 text-purple-700' }
        ].map(item => (
          <div key={item.title} className="bg-white p-6 md:p-10 rounded-[1.5rem] md:rounded-[3.5rem] border border-slate-200 hover:border-green-400 transition-all group flex flex-col items-center text-center shadow-lg">
             <div className={`p-4 md:p-6 rounded-2xl md:rounded-[2rem] mb-4 md:mb-8 group-hover:scale-110 transition-transform duration-700 ${item.color}`}><ShieldCheck size={28} /></div>
@@ -613,8 +681,8 @@ const KnowledgeHub: React.FC = () => (
     <div className="bg-slate-950 p-10 md:p-20 rounded-[2rem] md:rounded-[5rem] border-t-8 border-green-600 flex flex-col items-center text-center gap-6 md:gap-10 shadow-2xl overflow-hidden relative">
       <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-green-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
       <Zap size={48} className="text-green-500 animate-pulse md:size-16" />
-      <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter">Administrative Stream</h2>
-      <p className="text-slate-400 font-bold max-w-2xl leading-relaxed text-sm md:text-xl">Presence Monitor synchronized with latest circulars (2025).</p>
+      <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter">Strategic Monitor</h2>
+      <p className="text-slate-400 font-bold max-w-2xl leading-relaxed text-sm md:text-xl">Presence Monitor synchronized with latest Director General circulars.</p>
     </div>
   </div>
 );

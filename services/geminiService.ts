@@ -9,21 +9,22 @@ export async function analyzeNYSCSpeech(
   mimeType: string = 'audio/webm'
 ): Promise<SpeechAnalysis> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = 'gemini-3-flash-preview'; // Using Flash for free key compatibility
+  // Upgraded to Gemini 3 Pro for high-quality executive transcription and complex reasoning
+  const model = 'gemini-3-pro-preview'; 
   
   const prompt = `
-    You are an elite Executive Public Speaking Coach for high-ranking officials of the NYSC (National Youth Service Corps) Nigeria.
+    You are the Senior Executive Speech Analyst for the Director General of the NYSC.
     
-    Context: The official is delivering a ${scenario} using a ${leadershipStyle} leadership style.
+    Context: A high-ranking official (Zonal Inspector or Director) is delivering a "${scenario}" using a "${leadershipStyle}" leadership style.
     
-    Tasks:
-    1. Transcribe the audio precisely.
-    2. Analyze for: 
-       - Leadership Alignment: How well the speech matches the ${leadershipStyle} style.
-       - Tactical Precision: Correct use of NYSC administrative terms (SAED, PPA, LGI, CDM).
-       - Presence: Does the speaker sound like an authority figure who commands respect while maintaining the welfare of corps members?
-    3. Provide quantitative metrics for Clarity, Pacing, Authority, and Empathy.
-    4. Suggest high-level improvements specifically for an official in a "higher position".
+    Required Actions:
+    1. PRECISION TRANSCRIPTION: Provide a verbatim, word-for-word transcript of the audio. Do not summarize. 
+    2. NOISE ROBUSTNESS: The audio may contain background noise or wind. Filter out all non-speech artifacts and transcribe ONLY the spoken content with 100% accuracy.
+    3. ADMINISTRATIVE AUDIT: Detect correct usage of NYSC terms: PPA (Place of Primary Assignment), SAED (Skills Acquisition & Entrepreneurship Development), LGI (Local Government Inspector), CDM (Camp Director Meeting).
+    4. COMMAND PRESENCE: Evaluate if the speaker sounds authoritative yet administrative. 
+    5. STYLE ALIGNMENT: Grade how closely the delivery matches the ${leadershipStyle} tone.
+    
+    You must provide 4 distinct metrics: "Command & Authority", "Clarity & Pacing", "Policy Compliance", and "Engagement Factor".
     
     Return the analysis strictly in JSON format.
   `;
@@ -38,6 +39,7 @@ export async function analyzeNYSCSpeech(
         ]
       },
       config: {
+        thinkingConfig: { thinkingBudget: 4000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -71,7 +73,7 @@ export async function analyzeNYSCSpeech(
     if (!text) throw new Error("Empty response from AI");
     return JSON.parse(text.trim());
   } catch (error: any) {
-    console.error("Executive Speech analysis failed:", error);
+    console.error("Pro Speech analysis failed:", error);
     throw error;
   }
 }
@@ -80,7 +82,7 @@ export async function generateExecutiveOutline(scenario: NYSCScenario, keyThemes
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: `Generate a professional speech outline for an NYSC Zonal Inspector/Director for a ${scenario}. Key themes to incorporate: ${keyThemes.join(', ')}. Format as structured JSON.`,
       config: {
         responseMimeType: "application/json",
@@ -117,13 +119,12 @@ export async function askNYSCPolicy(question: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: question,
       config: {
         systemInstruction: `
           You are the Chief Legal and Administrative Advisor to the Director General of the NYSC. 
-          Your audience is high-ranking officials (ZI, AD, Directors). 
-          Provide strategic policy interpretations, reference the NYSC Act (1993/2004) and Bye-laws accurately.
+          Provide strategic policy interpretations referencing the NYSC Act accurately.
         `
       }
     });
@@ -137,7 +138,7 @@ export async function getSuggestedPoints(scenario: NYSCScenario): Promise<string
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: `Suggest 5 executive-level points for a ${scenario} by an NYSC Zonal Inspector.`,
       config: {
         responseMimeType: "application/json",
@@ -157,7 +158,7 @@ export async function checkPointCoverage(transcript: string, points: string[]): 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: `Compare transcript with points.
         Transcript: "${transcript}"
         Points: ${JSON.stringify(points)}
