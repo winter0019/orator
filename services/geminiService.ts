@@ -9,22 +9,18 @@ export async function analyzeNYSCSpeech(
   mimeType: string = 'audio/webm'
 ): Promise<SpeechAnalysis> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // Upgraded to Gemini 3 Pro for high-quality executive transcription and complex reasoning
   const model = 'gemini-3-pro-preview'; 
   
   const prompt = `
     You are the Senior Executive Speech Analyst for the Director General of the NYSC.
     
-    Context: A high-ranking official (Zonal Inspector or Director) is delivering a "${scenario}" using a "${leadershipStyle}" leadership style.
+    Context: A high-ranking official is delivering a "${scenario}" using a "${leadershipStyle}" leadership style.
     
     Required Actions:
-    1. PRECISION TRANSCRIPTION: Provide a verbatim, word-for-word transcript of the audio. Do not summarize. 
-    2. NOISE ROBUSTNESS: The audio may contain background noise or wind. Filter out all non-speech artifacts and transcribe ONLY the spoken content with 100% accuracy.
-    3. ADMINISTRATIVE AUDIT: Detect correct usage of NYSC terms: PPA (Place of Primary Assignment), SAED (Skills Acquisition & Entrepreneurship Development), LGI (Local Government Inspector), CDM (Camp Director Meeting).
-    4. COMMAND PRESENCE: Evaluate if the speaker sounds authoritative yet administrative. 
-    5. STYLE ALIGNMENT: Grade how closely the delivery matches the ${leadershipStyle} tone.
-    
-    You must provide 4 distinct metrics: "Command & Authority", "Clarity & Pacing", "Policy Compliance", and "Engagement Factor".
+    1. PRECISION TRANSCRIPTION: Provide a verbatim, word-for-word transcript. 
+    2. DEEP NOISE FILTERING: The audio may have significant environmental noise (wind, distant crowds, fan hum). You must isolate the human voice, suppress all background artifacts, and transcribe ONLY the intended spoken content.
+    3. ADMINISTRATIVE AUDIT: Detect correct usage of NYSC terms: PPA, SAED, LGI, CDM, and Corper.
+    4. COMMAND PRESENCE: Evaluate administrative authority. 
     
     Return the analysis strictly in JSON format.
   `;
@@ -83,7 +79,7 @@ export async function generateExecutiveOutline(scenario: NYSCScenario, keyThemes
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Generate a professional speech outline for an NYSC Zonal Inspector/Director for a ${scenario}. Key themes to incorporate: ${keyThemes.join(', ')}. Format as structured JSON.`,
+      contents: `Generate a professional speech outline for an NYSC official for a ${scenario}. Themes: ${keyThemes.join(', ')}. Format as structured JSON.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {

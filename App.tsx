@@ -30,7 +30,11 @@ import {
   Contrast,
   Palette,
   Camera,
-  Waves
+  Waves,
+  RefreshCw,
+  Info,
+  ExternalLink,
+  CheckCircle2
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -71,6 +75,90 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 // --- Sub-components ---
+
+const PermissionDiagnostics: React.FC<{ onRetry: () => void, onClose: () => void }> = ({ onRetry, onClose }) => {
+  const [micState, setMicState] = useState<PermissionState | 'unknown'>('unknown');
+  const [camState, setCamState] = useState<PermissionState | 'unknown'>('unknown');
+
+  useEffect(() => {
+    const checkPerms = async () => {
+      try {
+        if (navigator.permissions && navigator.permissions.query) {
+          const mic = await navigator.permissions.query({ name: 'microphone' as any });
+          const cam = await navigator.permissions.query({ name: 'camera' as any });
+          setMicState(mic.state);
+          setCamState(cam.state);
+          mic.onchange = () => setMicState(mic.state);
+          cam.onchange = () => setCamState(cam.state);
+        }
+      } catch (e) {
+        console.warn("Permissions API not fully supported", e);
+      }
+    };
+    checkPerms();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden border border-slate-200">
+        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="bg-amber-100 p-2 rounded-xl text-amber-600"><AlertCircle size={24} /></div>
+            <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Access Diagnostics</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={24} /></button>
+        </div>
+        
+        <div className="p-8 space-y-8">
+          <div className="grid grid-cols-2 gap-4">
+            <div className={`p-5 rounded-2xl border ${micState === 'granted' ? 'bg-green-50 border-green-100 text-green-700' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+              <div className="flex justify-between items-start mb-3">
+                <Mic size={20} />
+                {micState === 'granted' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest mb-1">Microphone</p>
+              <p className="text-lg font-black capitalize">{micState}</p>
+            </div>
+            <div className={`p-5 rounded-2xl border ${camState === 'granted' ? 'bg-green-50 border-green-100 text-green-700' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+              <div className="flex justify-between items-start mb-3">
+                <Camera size={20} />
+                {camState === 'granted' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest mb-1">Camera</p>
+              <p className="text-lg font-black capitalize">{camState}</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2"><Info size={14} /> Recovery Steps</h3>
+            <ul className="space-y-3">
+              <li className="flex gap-3 text-sm font-medium text-slate-600">
+                <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[10px] flex items-center justify-center shrink-0">1</span>
+                Look at your browser's address bar. Click the <strong>lock icon</strong> or <strong>settings icon</strong>.
+              </li>
+              <li className="flex gap-3 text-sm font-medium text-slate-600">
+                <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[10px] flex items-center justify-center shrink-0">2</span>
+                Locate <strong>Camera</strong> and <strong>Microphone</strong>. Toggle them to "Allow".
+              </li>
+              <li className="flex gap-3 text-sm font-medium text-slate-600">
+                <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[10px] flex items-center justify-center shrink-0">3</span>
+                Refresh the page or click "Retry System Link" below.
+              </li>
+            </ul>
+          </div>
+
+          <div className="pt-4 flex flex-col gap-3">
+            <button onClick={onRetry} className="w-full py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 shadow-xl transition-all flex items-center justify-center gap-2">
+              <RefreshCw size={18} /> Retry System Link
+            </button>
+            <button onClick={onClose} className="w-full py-3 text-slate-400 font-black text-xs uppercase tracking-widest hover:text-slate-600">Close Diagnostics</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const NavItem: React.FC<{ icon: any, label: string, active: boolean, onClick: () => void, isMobile?: boolean }> = ({ icon: Icon, label, active, onClick, isMobile }) => {
   if (isMobile) {
     return (
@@ -126,6 +214,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState<string>("");
   const [coachingAlerts, setCoachingAlerts] = useState<CoachingAlert[]>([]);
   const [wpm, setWpm] = useState<number>(0);
@@ -192,7 +281,6 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       } else if ((elem as any).webkitRequestFullscreen) {
         (elem as any).webkitRequestFullscreen();
       } else {
-        // Fallback for mobile devices (like iOS) that restrict div fullscreen
         setIsPseudoFullScreen(true);
       }
     } else {
@@ -207,6 +295,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
   const startRecording = async () => {
     setError(null);
+    setShowDiagnostics(false);
     setLiveTranscript("");
     setCoachingAlerts([]);
     setWpm(0);
@@ -241,8 +330,15 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       audioContextRef.current = audioCtx;
       startTimeRef.current = Date.now();
 
-      // Audio Processing Chain
+      // Advanced Audio Processing Chain for Noise Filtering
       const source = audioCtx.createMediaStreamSource(stream);
+      
+      // High-pass filter to remove low-frequency rumble (fan noise, background hum)
+      const highPassFilter = audioCtx.createBiquadFilter();
+      highPassFilter.type = 'highpass';
+      highPassFilter.frequency.setValueAtTime(100, audioCtx.currentTime); // Filter everything below 100Hz
+      
+      // Dynamic compressor to normalize levels
       const compressor = audioCtx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-50, audioCtx.currentTime);
       compressor.knee.setValueAtTime(40, audioCtx.currentTime);
@@ -262,7 +358,9 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
               sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
             };
             
-            source.connect(compressor);
+            // Connect nodes: Source -> HighPass -> Compressor -> Processor
+            source.connect(highPassFilter);
+            highPassFilter.connect(compressor);
             compressor.connect(scriptProcessor);
             scriptProcessor.connect(audioCtx.destination);
 
@@ -303,7 +401,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: 'You are an NYSC Executive Speech Coach. TRANSCRIPTION PRIORITY: Verbatim accuracy. Eliminate background noise interference. Focus on identifying terms like PPA, SAED, LGI, and CDM correctly within the context of NYSC administrative protocol.'
+          systemInstruction: 'You are an NYSC Executive Speech Coach. NOISE SUPPRESSION MODE: ENABLED. Transcribe accurately for administrative terminologies.'
         }
       });
 
@@ -329,8 +427,10 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       setIsRecording(true);
 
     } catch (err: any) {
+      console.error(err);
       setIsRecording(false);
-      setError("System Access Denied. Please ensure Microphone and Camera permissions are granted in your device settings.");
+      setError("System Access Denied. NYSC Oratory Pro requires microphone and camera access to provide executive analysis.");
+      setShowDiagnostics(true);
     }
   };
 
@@ -379,6 +479,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
   return (
     <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
+      {showDiagnostics && <PermissionDiagnostics onRetry={startRecording} onClose={() => setShowDiagnostics(false)} />}
+      
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 px-1">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Address Arena</h1>
@@ -386,19 +488,26 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         </div>
         {!isRecording && !audioBlob && (
            <div className="flex items-center gap-3">
+             <button onClick={() => setShowDiagnostics(true)} className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-full hover:bg-slate-200 transition-colors">
+               <ShieldCheck size={12} /> Access Check
+             </button>
              <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-full">
-               <Camera size={12} /> Camera Check
+               <Camera size={12} /> Optic Link
              </div>
              <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-full">
-               <Mic size={12} /> Mic Check
+               <Mic size={12} /> Audio Link
              </div>
            </div>
         )}
       </header>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 p-4 md:p-5 rounded-xl md:rounded-2xl flex items-center gap-3 text-red-700 font-bold text-xs md:text-sm animate-in shake duration-300">
-           <AlertCircle size={18} className="shrink-0" /> <p>{error}</p>
+        <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-amber-900 animate-in shake duration-300">
+           <div className="flex items-center gap-3 font-bold text-xs md:text-sm">
+             <AlertCircle size={20} className="shrink-0 text-amber-600" />
+             <p>{error}</p>
+           </div>
+           <button onClick={() => setShowDiagnostics(true)} className="px-6 py-2 bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-700 shadow-md">Troubleshoot Access</button>
         </div>
       )}
 
@@ -428,7 +537,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                  <Mic size={48} className="text-green-500" />
                </div>
                <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">System Ready</h2>
-               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Neural noise filters and administrative terminologies are primed. Click 'Start Address' below to begin.</p>
+               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Noise filters, frequency gates, and administrative models are primed. Click 'Start Address' below.</p>
+               {error && <p className="text-amber-400 text-[10px] font-black uppercase tracking-widest animate-pulse mt-4">Hardware Link Failure Detected</p>}
             </div>
           )}
         </div>
@@ -443,7 +553,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
             </div>
             <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
               <Waves size={10} className="text-blue-400" />
-              <span className="text-[9px] font-black uppercase tracking-tighter">Neural Filter Active</span>
+              <span className="text-[9px] font-black uppercase tracking-tighter">Biquad Filter Engaged</span>
             </div>
             <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
               <Activity size={10} className="text-green-400" />
@@ -517,7 +627,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
           </div>
         )}
 
-        {/* Pseudo-FullScreen Exit Button (Floating for mobile) */}
+        {/* Pseudo-FullScreen Exit Button */}
         {isPseudoFullScreen && (
           <button 
             onClick={stopRecording}
