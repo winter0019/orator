@@ -16,6 +16,7 @@ import {
   Activity, 
   GraduationCap, 
   Maximize2,
+  Minimize2,
   ZoomIn,
   ZoomOut,
   Target,
@@ -131,12 +132,14 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'wide' | 'focused' | 'closeup'>('wide');
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
   const [saturation, setSaturation] = useState(100);
 
+  const arenaRef = useRef<HTMLDivElement>(null);
   const liveSessionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -160,6 +163,24 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       case 'closeup': setZoomLevel(2.0); break;
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullScreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      arenaRef.current?.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   const addCoachingAlert = (type: CoachingAlert['type'], message: string) => {
     const newAlert: CoachingAlert = { id: Math.random().toString(36).substr(2, 9), type, message, timestamp: Date.now() };
@@ -202,7 +223,6 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       audioContextRef.current = audioCtx;
       startTimeRef.current = Date.now();
 
-      // Advanced Audio Processing Chain for Noise Reduction
       const source = audioCtx.createMediaStreamSource(stream);
       const compressor = audioCtx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-50, audioCtx.currentTime);
@@ -223,7 +243,6 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
               sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
             };
             
-            // Connect chain: Source -> Compressor -> ScriptProcessor -> Output
             source.connect(compressor);
             compressor.connect(scriptProcessor);
             scriptProcessor.connect(audioCtx.destination);
@@ -265,7 +284,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: 'You are an NYSC Executive Speech Coach. HIGH PRIORITY: Focus on word-for-word accuracy. Ignore background noise, ambient sounds, and non-speech audio. Transcribe only the spoken word. Identify administrative terms like PPA, SAED, LGI, and CDM with zero tolerance for errors.'
+          systemInstruction: 'You are an NYSC Executive Speech Coach. HIGH PRIORITY: Focus on word-for-word accuracy. Ignore background noise. Transcribe only spoken words. Identify terms like PPA, SAED, LGI, and CDM.'
         }
       });
 
@@ -292,7 +311,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
     } catch (err: any) {
       setIsRecording(false);
-      setError("System Access Denied. Please ensure Microphone and Camera permissions are granted in your device settings.");
+      setError("System Access Denied. Please ensure Microphone and Camera permissions are granted.");
     }
   };
 
@@ -304,6 +323,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     if (liveSessionRef.current) liveSessionRef.current.then((s: any) => s.close()).catch(() => {});
     setIsRecording(false);
+    if (document.fullscreenElement) document.exitFullscreen();
   };
 
   const analyzeSpeech = async () => {
@@ -321,7 +341,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      setError("Audit generation failed. High noise floors can sometimes affect deep analysis. Try again in a quieter setting.");
+      setError("Audit generation failed. High noise floors can sometimes affect analysis.");
       setIsAnalyzing(false);
     }
   };
@@ -357,8 +377,15 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         </div>
       )}
 
-      {/* Arena Stage */}
-      <div className="relative bg-slate-950 rounded-[1.5rem] md:rounded-[2.5rem] overflow-hidden shadow-xl md:shadow-2xl border-2 md:border-4 border-slate-900 aspect-[4/3] md:aspect-[16/10] group">
+      {/* Arena Stage Container */}
+      <div 
+        ref={arenaRef}
+        className={`relative bg-slate-950 overflow-hidden shadow-xl md:shadow-2xl border-slate-900 transition-all duration-300 ${
+          isFullScreen 
+          ? 'w-full h-screen border-0 rounded-0' 
+          : 'rounded-[1.5rem] md:rounded-[2.5rem] border-2 md:border-4 aspect-[4/3] md:aspect-[16/10]'
+        } group`}
+      >
         <div className="w-full h-full overflow-hidden flex items-center justify-center bg-black">
           <video 
             ref={videoRef} 
@@ -376,7 +403,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                  <Mic size={48} className="text-green-500" />
                </div>
                <h2 className="text-xl md:text-2xl font-black text-white">Ready for Address</h2>
-               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Permissions will be requested when you click 'Start Address'. Enhanced noise filtering is active by default.</p>
+               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Neural noise filtering is active. Click 'Start Address' below to begin.</p>
             </div>
           )}
         </div>
@@ -391,7 +418,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
             </div>
             <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
               <Waves size={10} className="text-blue-400" />
-              <span className="text-[9px] font-black uppercase tracking-tighter">Neural Noise Filter Active</span>
+              <span className="text-[9px] font-black uppercase tracking-tighter">Neural Filter Active</span>
             </div>
             <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
               <Activity size={10} className="text-green-400" />
@@ -400,40 +427,45 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
           </div>
         )}
 
-        {/* View Controls */}
-        {isRecording && (
-          <div className="absolute right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-3 z-40">
-            <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-2">
-              {[
-                { id: 'wide', icon: Monitor, label: 'WIDE' },
-                { id: 'focused', icon: Target, label: 'FOCUS' },
-                { id: 'closeup', icon: Maximize2, label: 'CLOSE' }
-              ].map(mode => (
-                <button 
-                  key={mode.id}
-                  onClick={() => setViewMode(mode.id as any)}
-                  className={`w-10 h-10 md:w-14 md:h-14 rounded-lg md:rounded-xl flex flex-col items-center justify-center gap-0.5 md:gap-1 transition-all border ${
-                    viewMode === mode.id 
-                    ? 'bg-green-600 border-green-500 text-white shadow-xl scale-105 md:scale-110' 
-                    : 'bg-white/5 border-transparent text-white/50 hover:text-white'
-                  }`}
-                >
-                  <mode.icon size={16} />
-                  <span className="text-[6px] md:text-[7px] font-black uppercase">{mode.label}</span>
-                </button>
-              ))}
-            </div>
-            
-            <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-1 md:gap-2">
-               <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomIn size={18} /></button>
-               <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomOut size={18} /></button>
-               <button onClick={() => setShowSettings(!showSettings)} className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${showSettings ? 'bg-green-600' : 'hover:bg-white/10'}`}><Sliders size={18} /></button>
-            </div>
+        {/* View Controls & Full Screen Toggle */}
+        <div className="absolute right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-3 z-40">
+          <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-2">
+            {[
+              { id: 'wide', icon: Monitor, label: 'WIDE' },
+              { id: 'focused', icon: Target, label: 'FOCUS' },
+              { id: 'closeup', icon: Maximize2, label: 'CLOSE' }
+            ].map(mode => (
+              <button 
+                key={mode.id}
+                onClick={() => setViewMode(mode.id as any)}
+                className={`w-10 h-10 md:w-14 md:h-14 rounded-lg md:rounded-xl flex flex-col items-center justify-center gap-0.5 md:gap-1 transition-all border ${
+                  viewMode === mode.id 
+                  ? 'bg-green-600 border-green-500 text-white shadow-xl scale-105 md:scale-110' 
+                  : 'bg-white/5 border-transparent text-white/50 hover:text-white'
+                }`}
+              >
+                <mode.icon size={16} />
+                <span className="text-[6px] md:text-[7px] font-black uppercase">{mode.label}</span>
+              </button>
+            ))}
           </div>
-        )}
+          
+          <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-1 md:gap-2">
+              <button 
+                onClick={toggleFullScreen} 
+                className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${isFullScreen ? 'bg-green-600' : 'hover:bg-white/10'}`}
+                title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}
+              >
+                {isFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              </button>
+              <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomIn size={18} /></button>
+              <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomOut size={18} /></button>
+              <button onClick={() => setShowSettings(!showSettings)} className={`w-10 h-10 md:w-14 md:h-12 flex items-center justify-center rounded-lg text-white transition-all ${showSettings ? 'bg-green-600' : 'hover:bg-white/10'}`}><Sliders size={18} /></button>
+          </div>
+        </div>
 
         {/* Tuning Menu */}
-        {isRecording && showSettings && (
+        {showSettings && (
           <div className="absolute bottom-24 right-4 md:right-32 bg-slate-900/95 backdrop-blur-2xl p-6 rounded-3xl border border-white/10 w-64 md:w-80 shadow-2xl z-50 animate-in slide-in-from-bottom-5 duration-300">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2">
@@ -460,11 +492,11 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
           </div>
         )}
 
-        {/* Lower Third */}
-        <div className="absolute bottom-0 inset-x-0 p-4 md:p-10 bg-gradient-to-t from-black via-black/40 to-transparent z-30">
-          <div className="max-w-3xl mx-auto text-center">
-             <div className="h-20 md:h-28 overflow-y-auto custom-scrollbar flex items-end justify-center">
-                <p className="text-lg md:text-2xl font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-xl">
+        {/* Lower Third Transcript */}
+        <div className={`absolute bottom-0 inset-x-0 p-4 md:p-10 bg-gradient-to-t from-black via-black/40 to-transparent z-30 transition-all ${isFullScreen ? 'pb-16' : ''}`}>
+          <div className="max-w-4xl mx-auto text-center">
+             <div className="h-20 md:h-32 overflow-y-auto custom-scrollbar flex items-end justify-center">
+                <p className={`font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-2xl ${isFullScreen ? 'text-2xl md:text-4xl' : 'text-lg md:text-2xl'}`}>
                   {liveTranscript || (isRecording ? "Transmitting audio signals..." : "")}
                 </p>
                 <div ref={transcriptEndRef} />
