@@ -1,0 +1,8 @@
+{
+  "name": "NYSC Oratory Pro",
+  "description": "A specialized public speaking assistant for NYSC Zonal Inspectors and Assistant Directors to master their addresses to corps members and management.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
