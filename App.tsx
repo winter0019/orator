@@ -15,27 +15,27 @@ import {
   MessageSquareQuote, 
   Activity, 
   GraduationCap, 
-  Maximize2,
-  Minimize2,
-  ZoomIn,
-  ZoomOut,
-  Target,
-  Monitor,
-  Settings,
-  Menu,
-  X,
-  Sliders,
-  RotateCcw,
-  Sun,
-  Contrast,
-  Palette,
-  Camera,
-  Waves,
-  RefreshCw,
-  Info,
-  ExternalLink,
-  CheckCircle2,
-  Lightbulb
+  Maximize2, 
+  Minimize2, 
+  ZoomIn, 
+  ZoomOut, 
+  Target, 
+  Monitor, 
+  Settings, 
+  Menu, 
+  X, 
+  Sliders, 
+  RotateCcw, 
+  Sun, 
+  Contrast, 
+  Palette, 
+  Camera, 
+  Waves, 
+  RefreshCw, 
+  Info, 
+  ExternalLink, 
+  CheckCircle2, 
+  Lightbulb 
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -69,10 +69,27 @@ function createBlob(data: Float32Array) {
 }
 
 const blobToBase64 = (blob: Blob): Promise<string> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    if (!(blob instanceof Blob)) {
+      return reject(new Error("Invalid Blob object provided for base64 conversion."));
+    }
     const reader = new FileReader();
-    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-    reader.readAsDataURL(blob);
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      if (result) {
+        resolve(result.split(',')[1]);
+      } else {
+        reject(new Error("FileReader produced an empty result."));
+      }
+    };
+    reader.onerror = () => {
+      reject(new Error("The object can not be found here: FileReader failed to read Blob."));
+    };
+    try {
+      reader.readAsDataURL(blob);
+    } catch (e) {
+      reject(e);
+    }
   });
 };
 
@@ -371,8 +388,12 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                   ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
                   canvasRef.current.toBlob(async (blob) => {
                     if (blob) {
-                      const base64Data = await blobToBase64(blob);
-                      sessionPromise.then(session => session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })).catch(() => {});
+                      try {
+                        const base64Data = await blobToBase64(blob);
+                        sessionPromise.then(session => session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })).catch(() => {});
+                      } catch (e) {
+                         // Non-critical: skip frame
+                      }
                     }
                   }, 'image/jpeg', JPEG_QUALITY);
                 }
@@ -438,14 +459,32 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     if (!isRecording) return;
     
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
+      try {
+        mediaRecorder.stop();
+      } catch (e) {
+        console.error("Failed to stop media recorder gracefully:", e);
+      }
     }
     
     if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
-    if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+    if (streamRef.current) streamRef.current.getTracks().forEach(track => {
+      try {
+        track.stop();
+      } catch (e) {}
+    });
     if (videoRef.current) videoRef.current.srcObject = null;
-    if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
-    if (liveSessionRef.current) liveSessionRef.current.then((s: any) => s.close()).catch(() => {});
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close().catch(() => {});
+      } catch (e) {}
+    }
+    if (liveSessionRef.current) {
+      liveSessionRef.current.then((s: any) => {
+        try {
+          s.close();
+        } catch (e) {}
+      }).catch(() => {});
+    }
     
     setIsRecording(false);
     
@@ -457,14 +496,14 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   };
 
   const analyzeSpeech = async () => {
-    if (!audioBlob) {
-      setError("Signal Capture Error: No audio data detected. Please record again.");
+    if (!audioBlob || audioBlob.size === 0) {
+      setError("Signal Capture Error: No valid audio data detected. Please record a longer address.");
       return;
     }
 
     const duration = Date.now() - startTimeRef.current;
     if (duration < MIN_RECORDING_MS) {
-      setError("Signal Too Weak: Recording was too short for executive analysis.");
+      setError("Signal Too Weak: Address was too brief for executive analysis (min 2s).");
       setAudioBlob(null);
       return;
     }
@@ -473,7 +512,10 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     setError(null);
     
     try {
+      console.log("Attempting base64 conversion for audit generation...");
       const base64data = await blobToBase64(audioBlob);
+      console.log("Conversion successful. Transmitting to analysis engine...");
+      
       const analysis = await analyzeNYSCSpeech(base64data, scenario, leadershipStyle, audioBlob.type);
       
       onAnalysisComplete({
@@ -484,8 +526,13 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      console.error("Analysis execution error:", err);
-      setError("Audit generation failed. Signal processing interrupted by network or model timeout.");
+      console.error("Audit generation failure:", err);
+      // Specifically handle the "Object can not be found" case in the UI
+      if (err.message && err.message.includes("found")) {
+        setError("System Integrity Fault: The captured audio signal was lost. This often happens if the tab is hidden or system memory is low. Please try again.");
+      } else {
+        setError(`Audit generation failed: ${err.message || 'Signal processing interrupted.'}`);
+      }
       setIsAnalyzing(false);
     }
   };

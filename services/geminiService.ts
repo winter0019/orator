@@ -9,20 +9,23 @@ export async function analyzeNYSCSpeech(
   mimeType: string = 'audio/webm'
 ): Promise<SpeechAnalysis> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = 'gemini-3-pro-preview'; 
+  // Using gemini-3-flash-preview for faster response and lower timeout probability
+  const model = 'gemini-3-flash-preview'; 
   
   const prompt = `
-    Analyze this audio for an NYSC Executive Speech Audit.
+    Conduct an NYSC Executive Oratory Audit.
     
+    Context:
     Scenario: ${scenario}
-    Leadership Style: ${leadershipStyle}
+    Leadership Style Target: ${leadershipStyle}
     
-    Tasks:
-    1. Verbatim Transcription: Capture exactly what was said. Support multi-lingual nuances if detected.
-    2. Administrative Audit: Check for NYSC terms (PPA, SAED, LGI, DG, Corper).
-    3. Metrics: Evaluate Tone, Command, Pacing, and Clarity.
+    Requirements:
+    1. Transcribe the audio exactly.
+    2. Identify NYSC administrative terminology (Corper, PPA, SAED, CDS, LGI, ZI, DG).
+    3. Evaluate performance metrics: Command, Tone, Pacing, and Clarity.
+    4. Provide specific executive strengths and improvements.
     
-    Return strictly JSON.
+    Respond strictly in JSON format.
   `;
 
   try {
@@ -35,7 +38,8 @@ export async function analyzeNYSCSpeech(
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 8000 },
+        // Reduced thinking budget to optimize for speed and prevent timeouts
+        thinkingConfig: { thinkingBudget: 0 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -66,17 +70,18 @@ export async function analyzeNYSCSpeech(
     });
 
     const text = response.text;
-    if (!text) throw new Error("Empty response from AI engine.");
+    if (!text) throw new Error("Null response from generative model.");
     
     try {
       return JSON.parse(text.trim());
     } catch (parseErr) {
-      console.error("JSON Parse Error. Raw Text:", text);
-      throw new Error("Administrative data formatting failed.");
+      console.error("Audit Parse Failure. Raw Payload:", text);
+      throw new Error("Failed to parse administrative audit data.");
     }
   } catch (error: any) {
-    console.error("Pro Speech analysis failed:", error);
-    throw error;
+    console.error("Audit Service Error:", error);
+    const errorMessage = error?.message || "Internal Signal Processing Error";
+    throw new Error(errorMessage);
   }
 }
 
@@ -84,8 +89,8 @@ export async function generateExecutiveOutline(scenario: NYSCScenario, keyThemes
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Generate a professional speech outline for an NYSC official for a ${scenario}. Themes: ${keyThemes.join(', ')}. Format as structured JSON.`,
+      model: 'gemini-3-flash-preview',
+      contents: `Generate an NYSC executive speech outline. Scenario: ${scenario}. Themes: ${keyThemes.join(', ')}. Return JSON.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -113,7 +118,7 @@ export async function generateExecutiveOutline(scenario: NYSCScenario, keyThemes
     });
     return JSON.parse(response.text.trim());
   } catch (err) {
-    throw new Error("Failed to generate outline.");
+    throw new Error("Outline generator unavailable.");
   }
 }
 
@@ -121,18 +126,15 @@ export async function askNYSCPolicy(question: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: question,
       config: {
-        systemInstruction: `
-          You are the Chief Legal and Administrative Advisor to the Director General of the NYSC. 
-          Provide strategic policy interpretations referencing the NYSC Act accurately.
-        `
+        systemInstruction: "You are the Chief Administrative Officer for NYSC. Interpret policy according to the NYSC Act."
       }
     });
-    return response.text || "Administrative database unreachable.";
+    return response.text || "No response from policy advisor.";
   } catch (error) {
-    return "Error querying policy database.";
+    return "Policy query failed.";
   }
 }
 
@@ -140,8 +142,8 @@ export async function getSuggestedPoints(scenario: NYSCScenario): Promise<string
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Suggest 5 executive-level points for a ${scenario} by an NYSC Zonal Inspector.`,
+      model: 'gemini-3-flash-preview',
+      contents: `Provide 5 key points for ${scenario}. Return JSON string array.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -152,7 +154,7 @@ export async function getSuggestedPoints(scenario: NYSCScenario): Promise<string
     });
     return JSON.parse(response.text.trim());
   } catch (error) {
-    return ["Uphold NYSC Core Values", "Ensure safety of corps members", "Drive SAED", "Stakeholder synergy", "Policy compliance"];
+    return ["Uphold NYSC Values", "Security awareness", "SAED participation", "Discipline", "Service to nation"];
   }
 }
 
@@ -160,11 +162,8 @@ export async function checkPointCoverage(transcript: string, points: string[]): 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Compare transcript with points.
-        Transcript: "${transcript}"
-        Points: ${JSON.stringify(points)}
-        Return JSON array of booleans.`,
+      model: 'gemini-3-flash-preview',
+      contents: `Transcript: "${transcript}". Points: ${JSON.stringify(points)}. Return JSON boolean array.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
