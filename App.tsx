@@ -15,14 +15,14 @@ import {
   MessageSquareQuote, 
   Activity, 
   GraduationCap, 
-  Video, 
-  VideoOff,
   Maximize2,
   ZoomIn,
   ZoomOut,
   Target,
   Monitor,
-  Settings
+  Settings,
+  Menu,
+  X
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -63,33 +63,49 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 // --- Sub-components ---
-const SidebarItem: React.FC<{ icon: any, label: string, active: boolean, onClick: () => void }> = ({ icon: Icon, label, active, onClick }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-      active ? 'bg-green-700 text-white shadow-xl shadow-green-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-    }`}
-  >
-    <Icon size={20} />
-    <span className="font-semibold text-sm">{label}</span>
-  </button>
-);
+const NavItem: React.FC<{ icon: any, label: string, active: boolean, onClick: () => void, isMobile?: boolean }> = ({ icon: Icon, label, active, onClick, isMobile }) => {
+  if (isMobile) {
+    return (
+      <button 
+        onClick={onClick}
+        className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all ${
+          active ? 'text-green-500' : 'text-slate-400'
+        }`}
+      >
+        <Icon size={20} />
+        <span className="text-[10px] font-bold uppercase tracking-tighter">{label.split(' ')[0]}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button 
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+        active ? 'bg-green-700 text-white shadow-xl shadow-green-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+      }`}
+    >
+      <Icon size={20} />
+      <span className="font-semibold text-sm">{label}</span>
+    </button>
+  );
+};
 
 const MetricCard: React.FC<{ label: string, score: number, feedback: string }> = ({ label, score, feedback }) => (
-  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-    <div className="flex justify-between items-center mb-3">
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
-      <span className={`text-xl font-black ${score > 70 ? 'text-green-600' : score > 40 ? 'text-amber-500' : 'text-red-500'}`}>
+  <div className="bg-white p-4 md:p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+    <div className="flex justify-between items-center mb-2 md:mb-3">
+      <span className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
+      <span className={`text-lg md:text-xl font-black ${score > 70 ? 'text-green-600' : score > 40 ? 'text-amber-500' : 'text-red-500'}`}>
         {score}%
       </span>
     </div>
-    <div className="w-full bg-slate-100 h-2.5 rounded-full mb-4 overflow-hidden">
+    <div className="w-full bg-slate-100 h-2 rounded-full mb-3 md:mb-4 overflow-hidden">
       <div 
         className={`h-full rounded-full transition-all duration-1000 ease-out ${score > 70 ? 'bg-green-500' : score > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
         style={{ width: `${score}%` }}
       />
     </div>
-    <p className="text-xs text-slate-600 font-medium italic">"{feedback}"</p>
+    <p className="text-[10px] md:text-xs text-slate-600 font-medium italic leading-relaxed">"{feedback}"</p>
   </div>
 );
 
@@ -106,7 +122,6 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   const [coachingAlerts, setCoachingAlerts] = useState<CoachingAlert[]>([]);
   const [wpm, setWpm] = useState<number>(0);
   
-  // Camera View States
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'wide' | 'focused' | 'closeup'>('wide');
 
@@ -126,12 +141,11 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     }
   }, [liveTranscript]);
 
-  // Adjust zoom based on viewMode
   useEffect(() => {
     switch (viewMode) {
       case 'wide': setZoomLevel(1); break;
-      case 'focused': setZoomLevel(1.5); break;
-      case 'closeup': setZoomLevel(2.2); break;
+      case 'focused': setZoomLevel(1.4); break;
+      case 'closeup': setZoomLevel(2.0); break;
     }
   }, [viewMode]);
 
@@ -148,7 +162,6 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     currentTranscriptRef.current = "";
     
     try {
-      // Direct access to both Camera and Mic
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: true, 
         video: { width: { ideal: 1280 }, height: { ideal: 720 } } 
@@ -214,8 +227,8 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
             }
           },
           onerror: (e: any) => {
-            console.error("Live session synchronization failed:", e);
-            setError("Session error: The model or service could not be initialized. Verify connectivity.");
+            console.error(e);
+            setError("Connectivity issue detected. Ensure microphone and camera are active.");
             stopRecording();
           },
         },
@@ -237,8 +250,7 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
     } catch (err: any) {
       setIsRecording(false);
-      setError("System Access Denied: Microphone and Camera are required for the Executive Arena. Please check browser settings.");
-      console.error(err);
+      setError("System Access Denied. Microphone and Camera permissions are required.");
     }
   };
 
@@ -267,176 +279,152 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      setError("Final Audit failed. System processing timeout.");
+      setError("Audit generation timed out. Try a shorter segment.");
       setIsAnalyzing(false);
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
-      <header className="flex flex-col md:flex-row items-center justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
+      <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 px-1">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Executive Stage</h1>
-          <p className="text-sm text-slate-500 font-medium italic">Administrative Oratory Protocol Active.</p>
+          <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Executive Stage</h1>
+          <p className="text-xs md:text-sm text-slate-500 font-medium italic">Administrative Oratory Protocol Active.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-3">
            <div className="px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase rounded-full border border-green-200">System Ready</div>
         </div>
       </header>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 p-5 rounded-2xl flex items-center gap-3 text-red-700 font-bold animate-pulse">
-           <AlertCircle size={20} className="shrink-0" /> <p className="text-sm">{error}</p>
+        <div className="bg-red-50 border border-red-200 p-4 md:p-5 rounded-xl md:rounded-2xl flex items-center gap-3 text-red-700 font-bold text-xs md:text-sm">
+           <AlertCircle size={18} className="shrink-0" /> <p>{error}</p>
         </div>
       )}
 
-      {/* Unified Stage with View Controls */}
-      <div className="relative bg-slate-950 rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-slate-900 aspect-[16/10] group">
+      {/* Unified Stage */}
+      <div className="relative bg-slate-950 rounded-[1.5rem] md:rounded-[2.5rem] overflow-hidden shadow-xl md:shadow-2xl border-2 md:border-4 border-slate-900 aspect-[4/3] md:aspect-[16/10] group">
         <div className="w-full h-full overflow-hidden flex items-center justify-center bg-black">
           <video 
             ref={videoRef} 
             muted 
             playsInline 
             style={{ transform: `scaleX(-1) scale(${zoomLevel})` }}
-            className={`w-full h-full object-cover transition-all duration-700 origin-center ${isRecording ? 'opacity-100' : 'opacity-10'}`} 
+            className={`w-full h-full object-cover transition-all duration-700 origin-center ${isRecording ? 'opacity-100' : 'opacity-20'}`} 
           />
         </div>
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Presentation View Overlays */}
-        {!isRecording && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-4">
-            <div className="w-24 h-24 rounded-full bg-slate-900 flex items-center justify-center animate-pulse border-2 border-slate-800">
-              <Monitor size={48} className="text-slate-600" />
+        {/* View Controls HUD (Right for touch, floating) */}
+        {isRecording && (
+          <div className="absolute right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-3 z-40">
+            <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-2">
+              {[
+                { id: 'wide', icon: Monitor, label: 'WIDE' },
+                { id: 'focused', icon: Target, label: 'FOCUS' },
+                { id: 'closeup', icon: Maximize2, label: 'CLOSE' }
+              ].map(mode => (
+                <button 
+                  key={mode.id}
+                  onClick={() => setViewMode(mode.id as any)}
+                  className={`w-10 h-10 md:w-14 md:h-14 rounded-lg md:rounded-xl flex flex-col items-center justify-center gap-0.5 md:gap-1 transition-all border ${
+                    viewMode === mode.id 
+                    ? 'bg-green-600 border-green-500 text-white shadow-xl scale-105 md:scale-110' 
+                    : 'bg-white/5 border-transparent text-white/50 hover:text-white'
+                  }`}
+                >
+                  <mode.icon size={16} />
+                  <span className="text-[6px] md:text-[7px] font-black uppercase">{mode.label}</span>
+                </button>
+              ))}
             </div>
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Awaiting Signal</p>
+            
+            <div className="p-1.5 md:p-2 bg-black/40 backdrop-blur-xl rounded-xl md:rounded-2xl border border-white/10 flex flex-col gap-1 md:gap-2">
+               <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomIn size={18} /></button>
+               <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-10 h-10 md:w-14 md:h-12 flex items-center justify-center hover:bg-white/10 rounded-lg text-white"><ZoomOut size={18} /></button>
+            </div>
           </div>
         )}
 
+        {/* HUD Stats */}
         {isRecording && (
-          <>
-            {/* Top Bar HUD */}
-            <div className="absolute top-0 inset-x-0 p-8 flex justify-between items-start bg-gradient-to-b from-black/90 to-transparent pointer-events-none z-30">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-red-600 px-4 py-2 rounded-xl shadow-2xl shadow-red-900/50">
-                  <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
-                  <span className="text-xs font-black text-white uppercase tracking-widest">TRANSMITTING</span>
-                </div>
-                <div className="bg-black/60 backdrop-blur-xl px-4 py-2 rounded-xl border border-white/20 text-white flex items-center gap-2">
-                  <Activity size={14} className="text-green-400" />
-                  <span className="text-xs font-black uppercase">{wpm} WPM</span>
-                </div>
-              </div>
+          <div className="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none z-30">
+            <div className="flex items-center gap-2 bg-red-600 px-3 py-1 rounded-full shadow-lg">
+              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span className="text-[9px] font-black text-white uppercase tracking-widest">Live</span>
             </div>
-
-            {/* View Mode & Zoom Sidebar */}
-            <div className="absolute left-8 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-40">
-              <div className="p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 flex flex-col gap-2">
-                {[
-                  { id: 'wide', icon: Monitor, label: 'WIDE' },
-                  { id: 'focused', icon: Target, label: 'FOCUS' },
-                  { id: 'closeup', icon: Maximize2, label: 'CLOSE' }
-                ].map(mode => (
-                  <button 
-                    key={mode.id}
-                    onClick={() => setViewMode(mode.id as any)}
-                    className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all border ${
-                      viewMode === mode.id 
-                      ? 'bg-green-600 border-green-500 text-white shadow-xl scale-110' 
-                      : 'bg-white/5 border-transparent text-white/50 hover:text-white hover:bg-white/10'
-                    }`}
-                  >
-                    <mode.icon size={18} />
-                    <span className="text-[7px] font-black uppercase">{mode.label}</span>
-                  </button>
-                ))}
-              </div>
-              
-              <div className="p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 flex flex-col gap-2">
-                 <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.1, 3.5))} className="w-14 h-12 flex items-center justify-center hover:bg-white/10 rounded-xl text-white transition-all"><ZoomIn size={20} /></button>
-                 <button onClick={() => setZoomLevel(prev => Math.max(prev - 0.1, 1))} className="w-14 h-12 flex items-center justify-center hover:bg-white/10 rounded-xl text-white transition-all"><ZoomOut size={20} /></button>
-              </div>
+            <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
+              <Activity size={10} className="text-green-400" />
+              <span className="text-[9px] font-black uppercase">{wpm} WPM</span>
             </div>
-
-            {/* Coaching Overlays */}
-            <div className="absolute top-24 right-8 w-72 space-y-4 pointer-events-none z-30">
-              {coachingAlerts.map(alert => (
-                <div key={alert.id} className="bg-amber-600/90 backdrop-blur-xl text-white p-5 rounded-3xl shadow-2xl border border-amber-400/30 flex gap-4 items-start animate-in slide-in-from-right-8 duration-500">
-                   <div className="p-2 bg-white/20 rounded-xl"><Zap size={18} /></div>
-                   <p className="text-sm font-bold leading-relaxed drop-shadow-sm">{alert.message}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Lower-Third Transcription */}
-            <div className="absolute bottom-0 inset-x-0 p-12 bg-gradient-to-t from-black via-black/60 to-transparent z-30">
-              <div className="max-w-4xl mx-auto">
-                <div className="flex items-center gap-2 mb-3 text-white/50">
-                  <Settings size={14} className="animate-spin-slow" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70">Real-time Policy Synchronization</span>
-                </div>
-                <div className="h-32 overflow-y-auto custom-scrollbar">
-                  <p className="text-2xl md:text-3xl font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-2xl font-medium">
-                    {liveTranscript || "Establishing secure administrative channel..."}
-                  </p>
-                  <div ref={transcriptEndRef} />
-                </div>
-              </div>
-            </div>
-          </>
+          </div>
         )}
+
+        {/* Lower Third Transcription */}
+        <div className="absolute bottom-0 inset-x-0 p-4 md:p-10 bg-gradient-to-t from-black via-black/40 to-transparent z-30">
+          <div className="max-w-3xl mx-auto">
+             <div className="h-20 md:h-28 overflow-y-auto custom-scrollbar flex items-end">
+                <p className="text-lg md:text-2xl font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-xl w-full">
+                  {liveTranscript || (isRecording ? "Establishing briefing channel..." : "Awaiting transmission...")}
+                </p>
+                <div ref={transcriptEndRef} />
+             </div>
+          </div>
+        </div>
       </div>
 
-      {/* Primary Control Hub */}
-      <div className="flex flex-col items-center gap-6 pb-12">
-        <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-2xl flex items-center gap-10 animate-in slide-in-from-bottom-8">
-          <div className="flex flex-col gap-1.5 pr-10 border-r border-slate-100">
-             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Operational Context</label>
+      {/* Control Panel Stacking */}
+      <div className="flex flex-col items-center gap-4 pb-20 md:pb-12">
+        <div className="w-full bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center gap-6 md:gap-10">
+          <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
+             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Scenario</label>
              <select 
                value={scenario} 
                disabled={isRecording}
                onChange={(e) => setScenario(e.target.value as NYSCScenario)}
-               className="font-black text-sm text-slate-800 outline-none bg-transparent cursor-pointer hover:text-green-600 transition-colors"
+               className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer"
              >
                {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
              </select>
           </div>
 
-          <div className="flex flex-col gap-1.5 pr-10 border-r border-slate-100">
-             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Leadership Tone</label>
+          <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
+             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Tone</label>
              <select 
                value={leadershipStyle} 
                disabled={isRecording}
                onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)}
-               className="font-black text-sm text-slate-800 outline-none bg-transparent cursor-pointer hover:text-green-600 transition-colors"
+               className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer"
              >
                {Object.values(LeadershipStyle).map(s => <option key={s} value={s}>{s}</option>)}
              </select>
           </div>
 
-          {!isRecording && !audioBlob && (
-             <button onClick={startRecording} className="px-12 py-5 bg-slate-900 text-white rounded-3xl font-black hover:bg-slate-800 shadow-2xl shadow-slate-900/30 transition-all flex items-center gap-4 active:scale-95 text-lg">
-               <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center shadow-inner"><Play size={20} fill="currentColor" className="ml-1" /></div>
-               Open Session
-             </button>
-          )}
+          <div className="w-full md:w-auto flex justify-center">
+            {!isRecording && !audioBlob && (
+               <button onClick={startRecording} className="w-full md:w-auto px-10 py-4 bg-slate-900 text-white rounded-2xl font-black hover:bg-slate-800 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base">
+                 <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center"><Play size={16} fill="currentColor" className="ml-0.5" /></div>
+                 Open Briefing
+               </button>
+            )}
 
-          {isRecording && (
-             <button onClick={stopRecording} className="px-12 py-5 bg-red-600 text-white rounded-3xl font-black hover:bg-red-700 shadow-2xl shadow-red-900/40 transition-all flex items-center gap-4 active:scale-95 text-lg animate-pulse">
-               <Square size={20} fill="currentColor" /> Conclude Address
-             </button>
-          )}
+            {isRecording && (
+               <button onClick={stopRecording} className="w-full md:w-auto px-10 py-4 bg-red-600 text-white rounded-2xl font-black hover:bg-red-700 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base animate-pulse">
+                 <Square size={16} fill="currentColor" /> Conclude
+               </button>
+            )}
 
-          {audioBlob && !isRecording && (
-            <div className="flex items-center gap-4">
-              <button onClick={() => { setAudioBlob(null); setLiveTranscript(""); }} className="px-8 py-5 text-slate-500 font-black hover:text-slate-900 text-sm tracking-widest uppercase">
-                Abort
-              </button>
-              <button onClick={analyzeSpeech} disabled={isAnalyzing} className="px-12 py-5 bg-green-600 text-white rounded-3xl font-black hover:bg-green-700 shadow-2xl shadow-green-900/30 transition-all active:scale-95">
-                {isAnalyzing ? "Processing Signal..." : "Strategic Audit"}
-              </button>
-            </div>
-          )}
+            {audioBlob && !isRecording && (
+              <div className="w-full md:w-auto flex items-center gap-3">
+                <button onClick={() => { setAudioBlob(null); setLiveTranscript(""); }} className="px-5 py-4 text-slate-400 font-black hover:text-slate-900 text-xs tracking-widest uppercase">
+                  Abort
+                </button>
+                <button onClick={analyzeSpeech} disabled={isAnalyzing} className="flex-1 md:flex-none px-10 py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 shadow-xl transition-all active:scale-95">
+                  {isAnalyzing ? "Processing..." : "Generate Audit"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -462,28 +450,40 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-50 selection:bg-green-100">
-      <aside className="w-72 bg-slate-900 p-8 flex flex-col fixed h-full z-50 border-r border-slate-800">
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 selection:bg-green-100">
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-72 bg-slate-900 p-8 flex-col fixed h-full z-50 border-r border-slate-800">
         <div className="flex items-center gap-4 mb-16">
           <div className="bg-green-600 p-3 rounded-2xl shadow-2xl shadow-green-900/40"><ShieldCheck className="text-white" size={32} /></div>
           <h1 className="text-2xl font-black text-white uppercase tracking-tighter">NYSC <span className="text-green-500">PRO</span></h1>
         </div>
         <nav className="space-y-3 flex-1">
-          <SidebarItem icon={LayoutDashboard} label="Strategic Hub" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          <SidebarItem icon={Mic} label="Executive Stage" active={activeTab === 'practice'} onClick={() => setActiveTab('practice')} />
-          <SidebarItem icon={GraduationCap} label="Policy Archive" active={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')} />
+          <NavItem icon={LayoutDashboard} label="Strategic Hub" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <NavItem icon={Mic} label="Executive Stage" active={activeTab === 'practice'} onClick={() => setActiveTab('practice')} />
+          <NavItem icon={GraduationCap} label="Policy Archive" active={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')} />
         </nav>
         <div className="mt-auto p-5 bg-slate-800/40 rounded-[2rem] border border-white/5">
            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-slate-700 flex items-center justify-center font-black text-white text-sm shadow-inner">AD</div>
+              <div className="w-12 h-12 rounded-2xl bg-slate-700 flex items-center justify-center font-black text-white text-sm">AD</div>
               <div>
-                <p className="text-[10px] font-black text-white uppercase tracking-widest">Administrative</p>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Zonal Inspectorate</p>
+                <p className="text-[10px] font-black text-white uppercase tracking-widest">Admin</p>
+                <p className="text-[8px] font-black text-slate-500 uppercase">Zonal Inspectorate</p>
               </div>
            </div>
         </div>
       </aside>
-      <main className="flex-1 md:ml-72 min-h-screen p-8 md:p-16 overflow-y-auto">
+
+      {/* Mobile Header */}
+      <header className="md:hidden flex items-center justify-between p-4 bg-slate-900 text-white sticky top-0 z-50">
+        <div className="flex items-center gap-2">
+           <div className="bg-green-600 p-1.5 rounded-lg"><ShieldCheck size={20} /></div>
+           <span className="font-black text-lg tracking-tighter">NYSC PRO</span>
+        </div>
+        <div className="text-[10px] font-black text-green-500 uppercase tracking-widest">Executive Level</div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 md:ml-72 min-h-screen p-4 md:p-16 overflow-y-auto">
         {activeTab === 'dashboard' && <Dashboard records={sessions} />}
         {activeTab === 'practice' && <PracticeRoom onAnalysisComplete={handleAnalysisComplete} />}
         {activeTab === 'knowledge' && <KnowledgeHub />}
@@ -494,49 +494,57 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-white/80 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around z-50 px-2 pb-safe">
+        <NavItem icon={LayoutDashboard} label="Hub" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} isMobile />
+        <NavItem icon={Mic} label="Stage" active={activeTab === 'practice'} onClick={() => setActiveTab('practice')} isMobile />
+        <NavItem icon={GraduationCap} label="Policy" active={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')} isMobile />
+      </nav>
     </div>
   );
 }
 
-// --- Dashboard Component ---
+// --- Simplified Dashboard Component ---
 const Dashboard: React.FC<{ records: SessionRecord[] }> = ({ records }) => {
   const avgScore = records.length > 0 
     ? Math.round(records.reduce((acc, r) => acc + r.analysis.overallScore, 0) / records.length) 
     : 0;
   return (
-    <div className="space-y-12 animate-in fade-in duration-1000">
+    <div className="space-y-8 md:space-y-12 animate-in fade-in duration-1000">
       <div>
-        <h1 className="text-5xl font-black text-slate-900 tracking-tighter">Strategic Hub</h1>
-        <p className="text-slate-500 mt-2 font-medium text-lg">Monitoring administrative presence and oratory mastery.</p>
+        <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">Strategic Hub</h1>
+        <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg">Monitoring administrative presence.</p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-        <div className="bg-white p-12 rounded-[4rem] border border-slate-200 shadow-xl relative overflow-hidden group">
-          <Award size={80} className="absolute -top-4 -right-4 text-green-100 rotate-12 group-hover:rotate-0 transition-transform duration-1000" />
-          <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-4">Command Quotient</p>
-          <h3 className="text-8xl font-black text-slate-900 tracking-tighter">{avgScore}%</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-10">
+        <div className="bg-white p-6 md:p-12 rounded-[2rem] md:rounded-[4rem] border border-slate-200 shadow-xl relative overflow-hidden group">
+          <Award size={48} className="absolute -top-2 -right-2 text-green-100 rotate-12 md:size-20" />
+          <p className="text-[9px] md:text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 md:mb-4">Command Quotient</p>
+          <h3 className="text-5xl md:text-8xl font-black text-slate-900 tracking-tighter">{avgScore}%</h3>
         </div>
-        <div className="bg-slate-900 p-12 rounded-[4rem] shadow-2xl text-white group overflow-hidden relative">
-          <History size={80} className="absolute -top-4 -right-4 text-white/5 -rotate-12 group-hover:rotate-0 transition-transform duration-1000" />
-          <p className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] mb-4">Total Briefings</p>
-          <h3 className="text-8xl font-black text-white tracking-tighter">{records.length}</h3>
+        <div className="bg-slate-900 p-6 md:p-12 rounded-[2rem] md:rounded-[4rem] shadow-2xl text-white group overflow-hidden relative">
+          <History size={48} className="absolute -top-2 -right-2 text-white/5 -rotate-12 md:size-20" />
+          <p className="text-[9px] md:text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 md:mb-4">Total Sessions</p>
+          <h3 className="text-5xl md:text-8xl font-black text-white tracking-tighter">{records.length}</h3>
         </div>
       </div>
+      
       {records.length > 0 && (
-        <section className="space-y-8 pt-10">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-4"><Monitor size={28} className="text-green-600" /> Briefing Archive</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section className="space-y-4 md:space-y-8">
+          <h2 className="text-xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3"><Monitor size={20} className="text-green-600" /> Archives</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {records.slice(0, 4).map(r => (
-              <div key={r.id} className="bg-white p-8 rounded-[3rem] border border-slate-100 flex items-center justify-between group hover:border-green-300 hover:shadow-2xl transition-all cursor-pointer">
-                <div className="flex items-center gap-6">
-                  <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-inner ${r.analysis.overallScore > 75 ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+              <div key={r.id} className="bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-100 flex items-center justify-between group hover:border-green-300 transition-all cursor-pointer shadow-sm">
+                <div className="flex items-center gap-4 md:gap-6">
+                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-[1.5rem] flex items-center justify-center font-black text-base md:text-xl ${r.analysis.overallScore > 75 ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
                     {r.analysis.overallScore}
                   </div>
                   <div>
-                    <p className="font-black text-slate-900 text-lg truncate max-w-[200px]">{r.scenario}</p>
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{r.date}</p>
+                    <p className="font-black text-slate-900 text-sm md:text-lg truncate max-w-[150px] md:max-w-[200px]">{r.scenario}</p>
+                    <p className="text-[9px] md:text-[10px] text-slate-400 font-black uppercase">{r.date.split(',')[0]}</p>
                   </div>
                 </div>
-                <ChevronRight size={24} className="text-slate-200 group-hover:text-green-600 group-hover:translate-x-2 transition-all" />
+                <ChevronRight size={20} className="text-slate-200 group-hover:text-green-600 transition-all" />
               </div>
             ))}
           </div>
@@ -549,32 +557,32 @@ const Dashboard: React.FC<{ records: SessionRecord[] }> = ({ records }) => {
 const AnalysisView: React.FC<{ record: SessionRecord, onBack: () => void }> = ({ record, onBack }) => {
   const analysis = record.analysis;
   return (
-    <div className="space-y-12 animate-in zoom-in-95 duration-700 pb-20">
-      <button onClick={onBack} className="flex items-center gap-3 text-slate-400 font-black text-[11px] uppercase tracking-[0.2em] hover:text-slate-900 transition-all bg-white px-8 py-4 rounded-full border border-slate-200 shadow-md">
-        <ChevronRight size={18} className="rotate-180" /> Operational Return
+    <div className="space-y-8 md:space-y-12 animate-in zoom-in-95 duration-700 pb-24">
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 font-black text-[10px] md:text-[11px] uppercase tracking-widest hover:text-slate-900 transition-all bg-white px-5 md:px-8 py-3 md:py-4 rounded-full border border-slate-200 shadow-md">
+        <ChevronRight size={16} className="rotate-180" /> Operational Return
       </button>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-        <div className="lg:col-span-2 space-y-12">
-          <section className="bg-white p-12 rounded-[4rem] border border-slate-200 shadow-2xl">
-            <h2 className="text-4xl font-black text-slate-900 tracking-tighter mb-16">Administrative Audit</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-12">
+        <div className="lg:col-span-2 space-y-8 md:space-y-12">
+          <section className="bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[4rem] border border-slate-200 shadow-xl">
+            <h2 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter mb-8 md:mb-16">Administrative Audit</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-10">
               {analysis.metrics.map((m, i) => <MetricCard key={i} label={m.label} score={m.score} feedback={m.feedback} />)}
             </div>
           </section>
-          <section className="bg-slate-900 p-16 rounded-[4.5rem] shadow-2xl">
-            <h2 className="text-2xl font-black text-white mb-10 tracking-tight">Signal Transcript</h2>
-            <div className="p-12 bg-slate-800/80 rounded-[3rem] text-slate-200 leading-relaxed font-serif text-2xl italic border border-white/5">{analysis.transcript}</div>
+          <section className="bg-slate-900 p-8 md:p-16 rounded-[2rem] md:rounded-[4.5rem] shadow-2xl">
+            <h2 className="text-xl md:text-2xl font-black text-white mb-6 md:mb-10 tracking-tight">Signal Transcript</h2>
+            <div className="p-6 md:p-12 bg-slate-800/80 rounded-[1.5rem] md:rounded-[3rem] text-slate-200 leading-relaxed font-serif text-lg md:text-2xl italic border border-white/5">{analysis.transcript}</div>
           </section>
         </div>
-        <div className="space-y-12">
-          <div className="bg-gradient-to-br from-green-600 to-green-900 p-16 rounded-[4rem] text-white shadow-2xl flex flex-col items-center">
-            <h3 className="text-9xl font-black mb-2 tracking-tighter">{analysis.overallScore}%</h3>
-            <p className="text-[12px] font-black uppercase tracking-[0.4em] opacity-80">Final Signal Quality</p>
+        <div className="space-y-8 md:space-y-12">
+          <div className="bg-gradient-to-br from-green-600 to-green-900 p-10 md:p-16 rounded-[2rem] md:rounded-[4rem] text-white shadow-2xl flex flex-col items-center">
+            <h3 className="text-7xl md:text-9xl font-black mb-1 md:mb-2 tracking-tighter">{analysis.overallScore}%</h3>
+            <p className="text-[10px] md:text-[12px] font-black uppercase tracking-[0.3em] opacity-80 text-center">Final Signal Quality</p>
           </div>
-          <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-2xl">
-             <h2 className="font-black text-slate-900 text-lg uppercase tracking-widest mb-10 flex items-center gap-4"><ShieldCheck size={28} className="text-green-600" /> Command Assets</h2>
+          <div className="bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[3.5rem] border border-slate-200 shadow-2xl">
+             <h2 className="font-black text-slate-900 text-sm md:text-lg uppercase tracking-widest mb-6 md:mb-10 flex items-center gap-3 md:gap-4"><ShieldCheck size={24} className="text-green-600" /> Strengths</h2>
              {analysis.strengths.map((s, i) => (
-               <div key={i} className="text-sm font-bold text-slate-700 bg-slate-50 p-6 rounded-3xl mb-4 border border-slate-100 shadow-sm">{s}</div>
+               <div key={i} className="text-xs md:text-sm font-bold text-slate-700 bg-slate-50 p-4 md:p-6 rounded-2xl md:rounded-3xl mb-3 md:mb-4 border border-slate-100">{s}</div>
              ))}
           </div>
         </div>
@@ -584,29 +592,29 @@ const AnalysisView: React.FC<{ record: SessionRecord, onBack: () => void }> = ({
 };
 
 const KnowledgeHub: React.FC = () => (
-  <div className="space-y-12 animate-in slide-in-from-right-10 duration-1000">
+  <div className="space-y-8 md:space-y-12 animate-in slide-in-from-right-10 duration-1000 pb-20">
     <div>
-      <h1 className="text-5xl font-black text-slate-900 tracking-tighter">Policy Archive</h1>
-      <p className="text-slate-500 mt-2 font-medium text-lg italic">Strategic alignment with the NYSC Statutory Act.</p>
+      <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">Policy Archive</h1>
+      <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg italic">Strategic alignment with the NYSC Act.</p>
     </div>
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
        {[
          { title: 'NYSC Act 1993', desc: 'The operational foundation of corps management.', color: 'bg-green-100 text-green-700' },
          { title: 'Bye-Laws 2024', desc: 'Administrative disciplinary and social guidelines.', color: 'bg-blue-100 text-blue-700' },
          { title: 'Crisis Response', desc: 'Procedures for camp and field emergencies.', color: 'bg-purple-100 text-purple-700' }
        ].map(item => (
-         <div key={item.title} className="bg-white p-10 rounded-[3.5rem] border border-slate-200 hover:border-green-400 transition-all group flex flex-col items-center text-center shadow-lg">
-            <div className={`p-6 rounded-[2rem] mb-8 group-hover:scale-110 transition-transform duration-700 ${item.color}`}><ShieldCheck size={36} /></div>
-            <h3 className="font-black text-slate-900 text-xl mb-3 tracking-tight">{item.title}</h3>
-            <p className="text-sm text-slate-500 font-bold leading-relaxed">{item.desc}</p>
+         <div key={item.title} className="bg-white p-6 md:p-10 rounded-[1.5rem] md:rounded-[3.5rem] border border-slate-200 hover:border-green-400 transition-all group flex flex-col items-center text-center shadow-lg">
+            <div className={`p-4 md:p-6 rounded-2xl md:rounded-[2rem] mb-4 md:mb-8 group-hover:scale-110 transition-transform duration-700 ${item.color}`}><ShieldCheck size={28} /></div>
+            <h3 className="font-black text-slate-900 text-lg md:text-xl mb-2 tracking-tight">{item.title}</h3>
+            <p className="text-xs md:text-sm text-slate-500 font-bold leading-relaxed">{item.desc}</p>
          </div>
        ))}
     </div>
-    <div className="bg-slate-950 p-20 rounded-[5rem] border-t-8 border-green-600 flex flex-col items-center text-center gap-10 shadow-2xl overflow-hidden relative">
-      <div className="absolute top-0 right-0 w-96 h-96 bg-green-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-      <Zap size={64} className="text-green-500 animate-pulse" />
-      <h2 className="text-4xl font-black text-white tracking-tighter">Administrative Intelligence Stream</h2>
-      <p className="text-slate-400 font-bold max-w-2xl leading-relaxed text-xl">The Presence Monitor is currently synchronized with the Director General's latest circulars (2025) to ensure your administrative tone is contemporary and strategic.</p>
+    <div className="bg-slate-950 p-10 md:p-20 rounded-[2rem] md:rounded-[5rem] border-t-8 border-green-600 flex flex-col items-center text-center gap-6 md:gap-10 shadow-2xl overflow-hidden relative">
+      <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-green-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+      <Zap size={48} className="text-green-500 animate-pulse md:size-16" />
+      <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter">Administrative Stream</h2>
+      <p className="text-slate-400 font-bold max-w-2xl leading-relaxed text-sm md:text-xl">Presence Monitor synchronized with latest circulars (2025).</p>
     </div>
   </div>
 );
