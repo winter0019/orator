@@ -182,11 +182,6 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     }
   };
 
-  const addCoachingAlert = (type: CoachingAlert['type'], message: string) => {
-    const newAlert: CoachingAlert = { id: Math.random().toString(36).substr(2, 9), type, message, timestamp: Date.now() };
-    setCoachingAlerts(prev => [newAlert, ...prev].slice(0, 3));
-  };
-
   const startRecording = async () => {
     setError(null);
     setLiveTranscript("");
@@ -223,6 +218,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       audioContextRef.current = audioCtx;
       startTimeRef.current = Date.now();
 
+      // Audio Processing Chain
       const source = audioCtx.createMediaStreamSource(stream);
       const compressor = audioCtx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-50, audioCtx.currentTime);
@@ -284,7 +280,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: 'You are an NYSC Executive Speech Coach. HIGH PRIORITY: Focus on word-for-word accuracy. Ignore background noise. Transcribe only spoken words. Identify terms like PPA, SAED, LGI, and CDM.'
+          systemInstruction: 'You are an NYSC Executive Speech Coach. TRANSCRIPTION PRIORITY: Verbatim accuracy. Eliminate background noise interference. Focus on identifying terms like PPA, SAED, LGI, and CDM correctly within the context of NYSC administrative protocol.'
         }
       });
 
@@ -311,7 +307,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
     } catch (err: any) {
       setIsRecording(false);
-      setError("System Access Denied. Please ensure Microphone and Camera permissions are granted.");
+      setError("System Access Denied. Please ensure Microphone and Camera permissions are granted in your device settings.");
     }
   };
 
@@ -341,7 +337,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         analysis
       });
     } catch (err: any) {
-      setError("Audit generation failed. High noise floors can sometimes affect analysis.");
+      setError("Audit generation failed. Please try a shorter recording or ensure higher signal-to-noise ratio.");
       setIsAnalyzing(false);
     }
   };
@@ -402,8 +398,8 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                <div className="p-6 bg-white/5 rounded-full border border-white/10 mb-2">
                  <Mic size={48} className="text-green-500" />
                </div>
-               <h2 className="text-xl md:text-2xl font-black text-white">Ready for Address</h2>
-               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Neural noise filtering is active. Click 'Start Address' below to begin.</p>
+               <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">System Ready</h2>
+               <p className="text-slate-300 text-xs md:text-sm max-w-sm">Neural noise filters and administrative terminologies are primed. Click 'Start Address' below to begin.</p>
             </div>
           )}
         </div>
@@ -497,7 +493,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
           <div className="max-w-4xl mx-auto text-center">
              <div className="h-20 md:h-32 overflow-y-auto custom-scrollbar flex items-end justify-center">
                 <p className={`font-serif text-white leading-tight italic opacity-95 transition-all duration-300 drop-shadow-2xl ${isFullScreen ? 'text-2xl md:text-4xl' : 'text-lg md:text-2xl'}`}>
-                  {liveTranscript || (isRecording ? "Transmitting audio signals..." : "")}
+                  {liveTranscript || (isRecording ? "Transmitting high-fidelity audio signal..." : "")}
                 </p>
                 <div ref={transcriptEndRef} />
              </div>
@@ -624,7 +620,7 @@ const Dashboard: React.FC<{ records: SessionRecord[] }> = ({ records }) => {
   return (
     <div className="space-y-8 md:space-y-12 animate-in fade-in duration-1000">
       <div>
-        <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">Address Arena</h1>
+        <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">NYSC Pro</h1>
         <p className="text-slate-500 mt-1 md:mt-2 font-medium text-sm md:text-lg">Analyzing administrative oratory and command impact.</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-10">
