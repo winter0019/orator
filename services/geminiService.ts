@@ -9,9 +9,12 @@ export async function analyzeNYSCSpeech(
   mimeType: string = 'audio/webm'
 ): Promise<SpeechAnalysis> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // Using gemini-3-flash-preview for faster response and lower timeout probability
+  // Using gemini-3-flash-preview for high-speed analysis and reliability
   const model = 'gemini-3-flash-preview'; 
   
+  // Clean MIME type: Extract just the base (e.g., 'audio/webm') to avoid API parsing issues with codec params
+  const cleanMimeType = mimeType.split(';')[0];
+
   const prompt = `
     Conduct an NYSC Executive Oratory Audit.
     
@@ -20,7 +23,7 @@ export async function analyzeNYSCSpeech(
     Leadership Style Target: ${leadershipStyle}
     
     Requirements:
-    1. Transcribe the audio exactly.
+    1. Transcribe the audio exactly. Support Nigerian accents and multi-lingual expressions (English, Pidgin, Local languages).
     2. Identify NYSC administrative terminology (Corper, PPA, SAED, CDS, LGI, ZI, DG).
     3. Evaluate performance metrics: Command, Tone, Pacing, and Clarity.
     4. Provide specific executive strengths and improvements.
@@ -33,12 +36,11 @@ export async function analyzeNYSCSpeech(
       model,
       contents: {
         parts: [
-          { inlineData: { data: audioBase64, mimeType } },
+          { inlineData: { data: audioBase64, mimeType: cleanMimeType } },
           { text: prompt }
         ]
       },
       config: {
-        // Reduced thinking budget to optimize for speed and prevent timeouts
         thinkingConfig: { thinkingBudget: 0 },
         responseMimeType: "application/json",
         responseSchema: {
@@ -70,13 +72,13 @@ export async function analyzeNYSCSpeech(
     });
 
     const text = response.text;
-    if (!text) throw new Error("Null response from generative model.");
+    if (!text) throw new Error("The model returned an empty audit response.");
     
     try {
       return JSON.parse(text.trim());
     } catch (parseErr) {
-      console.error("Audit Parse Failure. Raw Payload:", text);
-      throw new Error("Failed to parse administrative audit data.");
+      console.error("Audit Parse Failure:", text);
+      throw new Error("Administrative data formatting failed.");
     }
   } catch (error: any) {
     console.error("Audit Service Error:", error);

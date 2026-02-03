@@ -68,29 +68,27 @@ function createBlob(data: Float32Array) {
   };
 }
 
-const blobToBase64 = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    if (!(blob instanceof Blob)) {
-      return reject(new Error("Invalid Blob object provided for base64 conversion."));
-    }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      if (result) {
-        resolve(result.split(',')[1]);
-      } else {
-        reject(new Error("FileReader produced an empty result."));
-      }
-    };
-    reader.onerror = () => {
-      reject(new Error("The object can not be found here: FileReader failed to read Blob."));
-    };
-    try {
-      reader.readAsDataURL(blob);
-    } catch (e) {
-      reject(e);
-    }
-  });
+/**
+ * Robustly converts a Blob to a base64 string using the arrayBuffer API.
+ * This avoids the fragile string-splitting required by readAsDataURL.
+ */
+const blobToBase64 = async (blob: Blob): Promise<string> => {
+  if (!(blob instanceof Blob)) {
+    throw new Error("Invalid signal input: The provided object is not a valid Blob.");
+  }
+  
+  if (blob.size === 0) {
+    throw new Error("Invalid signal input: The recorded data is empty.");
+  }
+
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    return encode(bytes);
+  } catch (err) {
+    console.error("Base64 conversion failed:", err);
+    throw new Error("The captured object could not be processed. Memory pressure or system interruption detected.");
+  }
 };
 
 // --- Sub-components ---
@@ -497,7 +495,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
   const analyzeSpeech = async () => {
     if (!audioBlob || audioBlob.size === 0) {
-      setError("Signal Capture Error: No valid audio data detected. Please record a longer address.");
+      setError("Signal Capture Error: No valid audio data detected. Ensure your microphone is picking up sound.");
       return;
     }
 
@@ -512,9 +510,9 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     setError(null);
     
     try {
-      console.log("Attempting base64 conversion for audit generation...");
+      console.log("Processing audio signal for audit generation...");
       const base64data = await blobToBase64(audioBlob);
-      console.log("Conversion successful. Transmitting to analysis engine...");
+      console.log("Signal processed. Transmitting to analysis engine...");
       
       const analysis = await analyzeNYSCSpeech(base64data, scenario, leadershipStyle, audioBlob.type);
       
@@ -527,9 +525,11 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       });
     } catch (err: any) {
       console.error("Audit generation failure:", err);
-      // Specifically handle the "Object can not be found" case in the UI
-      if (err.message && err.message.includes("found")) {
-        setError("System Integrity Fault: The captured audio signal was lost. This often happens if the tab is hidden or system memory is low. Please try again.");
+      // More helpful error messages for the user
+      if (err.message && (err.message.includes("found") || err.message.includes("Integrity"))) {
+        setError("System Integrity Fault: The captured audio signal was lost or could not be read. Please refresh and try again.");
+      } else if (err.message && err.message.includes("Base64")) {
+        setError("Signal Decoding Error: The audio format was not recognized by the AI engine. Please try a shorter recording.");
       } else {
         setError(`Audit generation failed: ${err.message || 'Signal processing interrupted.'}`);
       }
