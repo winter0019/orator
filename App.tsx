@@ -168,7 +168,6 @@ const PracticeRoom: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       audioContextRef.current = audioCtx;
       startTimeRef.current = Date.now();
 
-      // Ensure model name is precisely correct for the current Live API
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
@@ -456,8 +455,8 @@ export default function App() {
   }, []);
 
   const handleAnalysisComplete = (newRecord: SessionRecord) => {
-    setSessions(prev => [...prev, newRecord]);
-    localStorage.setItem('nysc_oratory_sessions', JSON.stringify([...sessions, newRecord]));
+    setSessions(prev => [newRecord, ...prev]);
+    localStorage.setItem('nysc_oratory_sessions', JSON.stringify([newRecord, ...sessions]));
     setSelectedAnalysis(newRecord);
     setActiveTab('analysis');
   };
@@ -526,7 +525,7 @@ const Dashboard: React.FC<{ records: SessionRecord[] }> = ({ records }) => {
         <section className="space-y-8 pt-10">
           <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-4"><Monitor size={28} className="text-green-600" /> Briefing Archive</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {records.slice(-4).map(r => (
+            {records.slice(0, 4).map(r => (
               <div key={r.id} className="bg-white p-8 rounded-[3rem] border border-slate-100 flex items-center justify-between group hover:border-green-300 hover:shadow-2xl transition-all cursor-pointer">
                 <div className="flex items-center gap-6">
                   <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-inner ${r.analysis.overallScore > 75 ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
@@ -539,7 +538,7 @@ const Dashboard: React.FC<{ records: SessionRecord[] }> = ({ records }) => {
                 </div>
                 <ChevronRight size={24} className="text-slate-200 group-hover:text-green-600 group-hover:translate-x-2 transition-all" />
               </div>
-            )).reverse()}
+            ))}
           </div>
         </section>
       )}
