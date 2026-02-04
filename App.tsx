@@ -40,7 +40,8 @@ import {
   Flag,
   Video,
   Cpu,
-  UserCheck
+  UserCheck,
+  BarChart3
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -49,7 +50,9 @@ import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
 // --- Constants ---
 const JPEG_QUALITY = 0.5;
 const TARGET_SAMPLE_RATE = 16000;
-const TRANSCRIPTION_DEBOUNCE_MS = 60;
+const TRANSCRIPTION_DEBOUNCE_MS = 40; // Reduced for faster feedback
+const BUFFER_SIZE = 4096;
+const GATE_HOLD_MS = 250; // Hysteresis time to keep gate open
 
 // --- Utils ---
 function encode(bytes: Uint8Array) {
@@ -86,17 +89,26 @@ function createBlob(data: Float32Array, inputSampleRate: number) {
   };
 }
 
-const blobToBase64 = async (blob: Blob): Promise<string> => {
-  if (!(blob instanceof Blob)) throw new Error("Invalid signal input: The provided object is not a valid Blob.");
-  if (blob.size === 0) throw new Error("Invalid signal input: The recorded data is empty.");
-  try {
-    const arrayBuffer = await blob.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    return encode(bytes);
-  } catch (err) {
-    console.error("Base64 conversion failed:", err);
-    throw new Error("The captured object could not be processed.");
-  }
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (!blob || blob.size === 0) {
+      return reject(new Error("Captured signal is empty or invalid."));
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        const base64 = reader.result.split(',')[1];
+        if (base64) resolve(base64);
+        else reject(new Error("Signal decoding failed: empty result."));
+      } else {
+        reject(new Error("Unexpected result type from signal reader."));
+      }
+    };
+    reader.onerror = () => {
+      reject(new Error("The object can not be found or processed. Hardware interruption likely."));
+    };
+    reader.readAsDataURL(blob);
+  });
 };
 
 // --- Sub-components ---
@@ -146,7 +158,7 @@ const PermissionDiagnostics: React.FC<{ onRetry: () => void; onClose: () => void
         <div className="space-y-4">
           <div className="flex gap-4">
              <div className="bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center font-black text-slate-400 text-[10px] shrink-0">01</div>
-             <p className="text-sm font-bold text-slate-600 leading-relaxed">Ensure your browser has permission to access the <span className="text-slate-900">Microphone</span> and <span className="text-slate-900">Camera</span> in settings.</p>
+             <p className="text-sm font-bold text-slate-600 leading-relaxed">Ensure your browser has permission to access the <span className="text-slate-900">Microphone</span> and <span className="text-slate-900">Camera</span>.</p>
           </div>
           <div className="flex gap-4">
              <div className="bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center font-black text-slate-400 text-[10px] shrink-0">02</div>
@@ -224,13 +236,14 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   const [correctingSegment, setCorrectingSegment] = useState<TranscriptSegment | null>(null);
   const [wpm, setWpm] = useState<number>(0);
   
-  // System Performance Controls
+  // Performance Controls
   const [targetResolution, setTargetResolution] = useState<'480p' | '720p' | '1080p'>('720p');
-  const [aiVisionRate, setAiVisionRate] = useState<number>(1.5); // FPS for AI processing
-  const [hardwareFPS, setHardwareFPS] = useState<number>(30); // Display FPS
-  const [noiseGateThreshold, setNoiseGateThreshold] = useState<number>(20); // Adaptive Noise Gate
+  const [aiVisionRate, setAiVisionRate] = useState<number>(1.5); 
+  const [hardwareFPS, setHardwareFPS] = useState<number>(30); 
+  const [noiseGateThreshold, setNoiseGateThreshold] = useState<number>(20); 
+  const [signalLevel, setSignalLevel] = useState<number>(0);
 
-  // Camera & Audio Controls
+  // View Controls
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'wide' | 'focused' | 'closeup'>('wide');
   const [isPseudoFullScreen, setIsPseudoFullScreen] = useState(false);
@@ -247,8 +260,12 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
   const streamRef = useRef<MediaStream | null>(null);
   const frameIntervalRef = useRef<number | null>(null);
   const transcriptTimeoutRef = useRef<number | null>(null);
+  
+  // Refs for audio gate and buffering
   const noiseGateRef = useRef(noiseGateThreshold);
+  const gateLastActiveRef = useRef<number>(0);
   const currentSentenceRef = useRef<string>("");
+  const audioBufferAccumulator = useRef<Float32Array>(new Float32Array(0));
 
   useEffect(() => {
     noiseGateRef.current = noiseGateThreshold;
@@ -283,6 +300,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
     setWpm(0);
     setAudioBlob(null);
     currentSentenceRef.current = "";
+    audioBufferAccumulator.current = new Float32Array(0);
     
     const { width, height } = getResolutionValue();
 
@@ -317,73 +335,99 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
 
       const source = audioCtx.createMediaStreamSource(stream);
       
-      // Advanced Audio Pipeline
+      // Multi-stage filtering
       const highPass = audioCtx.createBiquadFilter();
       highPass.type = 'highpass';
-      highPass.frequency.setValueAtTime(80, audioCtx.currentTime); // Cut subsonic noise
+      highPass.frequency.setValueAtTime(85, audioCtx.currentTime); 
 
-      const lowPass = audioCtx.createBiquadFilter();
-      lowPass.type = 'lowpass';
-      lowPass.frequency.setValueAtTime(7000, audioCtx.currentTime); // Cut high sibilance noise
+      const presenceBoost = audioCtx.createBiquadFilter();
+      presenceBoost.type = 'peaking';
+      presenceBoost.frequency.setValueAtTime(3000, audioCtx.currentTime);
+      presenceBoost.gain.setValueAtTime(3, audioCtx.currentTime);
 
       const compressor = audioCtx.createDynamicsCompressor();
-      compressor.threshold.setValueAtTime(-45, audioCtx.currentTime);
-      compressor.knee.setValueAtTime(30, audioCtx.currentTime);
-      compressor.ratio.setValueAtTime(12, audioCtx.currentTime);
-      compressor.attack.setValueAtTime(0, audioCtx.currentTime);
+      compressor.threshold.setValueAtTime(-40, audioCtx.currentTime);
+      compressor.knee.setValueAtTime(25, audioCtx.currentTime);
+      compressor.ratio.setValueAtTime(10, audioCtx.currentTime);
+      compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
       compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
 
-      const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+      const scriptProcessor = audioCtx.createScriptProcessor(BUFFER_SIZE, 1, 1);
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
             scriptProcessor.onaudioprocess = (e) => {
+              if (!isRecording) return;
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // Adaptive Noise Gate Logic
-              const threshold = noiseGateRef.current / 1000;
-              let hasSignal = false;
-              for (let i = 0; i < inputData.length; i++) {
-                if (Math.abs(inputData[i]) < threshold) {
-                  inputData[i] = 0;
-                } else {
-                  hasSignal = true;
-                }
+              // RMS Signal Detection for Adaptive Gate
+              let sum = 0;
+              for(let i=0; i<inputData.length; i++) sum += inputData[i] * inputData[i];
+              const rms = Math.sqrt(sum / inputData.length);
+              const db = 20 * Math.log10(rms || 0.00001);
+              const normalizedLevel = Math.max(0, Math.min(100, (db + 60) * 1.6));
+              setSignalLevel(normalizedLevel);
+
+              // Adaptive Threshold Hysteresis
+              const threshold = -60 + (noiseGateRef.current * 0.4); 
+              const now = Date.now();
+              const hasSpeech = db > threshold;
+              
+              if (hasSpeech) {
+                gateLastActiveRef.current = now;
               }
 
-              // Only stream if there is meaningful audio signal to improve transcription context
-              if (hasSignal || Math.random() < 0.1) { // Send occasional noise to keep connection alive
-                const pcmBlob = createBlob(inputData, nativeRate);
-                sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
+              const isGateOpen = (now - gateLastActiveRef.current) < GATE_HOLD_MS;
+
+              if (isGateOpen) {
+                // Buffer Accumulation for Adaptive Chunking
+                const newBuffer = new Float32Array(audioBufferAccumulator.current.length + inputData.length);
+                newBuffer.set(audioBufferAccumulator.current);
+                newBuffer.set(inputData, audioBufferAccumulator.current.length);
+                audioBufferAccumulator.current = newBuffer;
+
+                // Dynamic Buffering: Send immediately if loud, otherwise group to 2 buffers (approx 180ms)
+                const isStrongSignal = db > (threshold + 10);
+                if (audioBufferAccumulator.current.length >= BUFFER_SIZE * 2 || isStrongSignal) {
+                  const pcmBlob = createBlob(audioBufferAccumulator.current, nativeRate);
+                  sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
+                  audioBufferAccumulator.current = new Float32Array(0);
+                }
+              } else {
+                // Clear buffer if gate is closed to prevent "pops" when reopening
+                audioBufferAccumulator.current = new Float32Array(0);
+                // Send heartbeat to keep session alive
+                if (Math.random() < 0.05) {
+                  const silentData = new Float32Array(BUFFER_SIZE).fill(0);
+                  const pcmBlob = createBlob(silentData, nativeRate);
+                  sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
+                }
               }
             };
 
             source.connect(highPass);
-            highPass.connect(lowPass);
-            lowPass.connect(compressor);
+            highPass.connect(presenceBoost);
+            presenceBoost.connect(compressor);
             compressor.connect(scriptProcessor);
             scriptProcessor.connect(audioCtx.destination);
 
             frameIntervalRef.current = window.setInterval(() => {
-              if (videoRef.current && canvasRef.current) {
+              if (videoRef.current && canvasRef.current && videoRef.current.videoWidth > 0) {
                 const ctx = canvasRef.current.getContext('2d');
                 if (ctx) {
-                  canvasRef.current.width = videoRef.current.videoWidth || width;
-                  canvasRef.current.height = videoRef.current.videoHeight || height;
+                  canvasRef.current.width = videoRef.current.videoWidth;
+                  canvasRef.current.height = videoRef.current.videoHeight;
                   ctx.filter = `brightness(${brightness}%)`;
-                  ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-                  canvasRef.current.toBlob(async (blob) => {
-                    if (blob) {
-                      try {
-                        const base64Data = await blobToBase64(blob);
-                        sessionPromise.then(session => session.sendRealtimeInput({ 
-                          media: { data: base64Data, mimeType: 'image/jpeg' } 
-                        })).catch(() => {});
-                      } catch (e) {}
-                    }
-                  }, 'image/jpeg', JPEG_QUALITY);
+                  ctx.drawImage(videoRef.current, 0, 0);
+                  const dataUrl = canvasRef.current.toDataURL('image/jpeg', JPEG_QUALITY);
+                  const base64Data = dataUrl.split(',')[1];
+                  if (base64Data) {
+                    sessionPromise.then(session => session.sendRealtimeInput({ 
+                      media: { data: base64Data, mimeType: 'image/jpeg' } 
+                    })).catch(() => {});
+                  }
                 }
               }
             }, 1000 / aiVisionRate);
@@ -417,7 +461,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: `You are an NYSC Executive Speech Coach. Focus on administrative command and protocol. Tone target: ${leadershipStyle}. Support multi-lingual nuances of Nigeria.`
+          systemInstruction: `You are an NYSC Executive Speech Coach. Tone: ${leadershipStyle}.`
         }
       });
 
@@ -499,7 +543,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 px-1">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Address Arena</h1>
-          <p className="text-xs md:text-sm text-slate-500 font-medium italic">High-fidelity oratory staging protocol.</p>
+          <p className="text-xs md:text-sm text-slate-500 font-medium italic">Advanced executive rehearsal stage.</p>
         </div>
         {!isRecording && !audioBlob && (
            <div className="flex items-center gap-3">
@@ -548,7 +592,12 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         {isRecording && (
           <div className="absolute top-4 left-4 flex flex-col gap-2 z-30">
             <div className="flex items-center gap-2 bg-red-600 px-3 py-1 rounded-full shadow-lg"><div className="w-2 h-2 rounded-full bg-white animate-pulse" /><span className="text-[9px] font-black text-white uppercase tracking-widest">Live Audit</span></div>
-            <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2"><Waves size={10} className="text-blue-400" /><span className="text-[9px] font-black uppercase tracking-tighter">Acoustic Gate</span></div>
+            <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2">
+              <Waves size={10} className={`${signalLevel > noiseGateThreshold ? 'text-green-400' : 'text-blue-400'} transition-colors duration-200`} />
+              <div className="flex items-center gap-1 w-12 h-1 bg-white/10 rounded-full overflow-hidden">
+                <div className={`h-full transition-all duration-75 ${signalLevel > noiseGateThreshold ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-blue-500'}`} style={{ width: `${signalLevel}%` }} />
+              </div>
+            </div>
             <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white flex items-center gap-2"><Activity size={10} className="text-green-400" /><span className="text-[9px] font-black uppercase">{wpm} WPM</span></div>
           </div>
         )}
@@ -577,17 +626,15 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         {/* Settings Menu */}
         {showSettings && (
           <div className="absolute bottom-24 right-4 md:right-32 bg-slate-900/95 backdrop-blur-2xl p-6 rounded-3xl border border-white/10 w-64 md:w-80 shadow-2xl z-50 max-h-[70vh] overflow-y-auto custom-scrollbar animate-in slide-in-from-right-10">
-            <div className="flex items-center justify-between mb-6"><h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2"><Settings size={14} className="text-green-500" /> Calibration Hub</h3><button onClick={() => setShowSettings(false)} className="text-white/40 hover:text-white"><X size={18} /></button></div>
+            <div className="flex items-center justify-between mb-6"><h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2"><Settings size={14} className="text-green-500" /> Executive Tuner</h3><button onClick={() => setShowSettings(false)} className="text-white/40 hover:text-white"><X size={18} /></button></div>
             
             <div className="space-y-6">
-              {/* Audio Processing */}
               <div className="space-y-3">
-                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span>Acoustic Gate</span><span className="text-blue-400">{noiseGateThreshold}%</span></div>
+                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span className="flex items-center gap-2"><BarChart3 size={14} className="text-blue-400" /> Acoustic Gate</span><span className="text-blue-400">{noiseGateThreshold}%</span></div>
                 <input type="range" min="0" max="100" value={noiseGateThreshold} onChange={(e) => setNoiseGateThreshold(parseInt(e.target.value))} className="w-full h-1 appearance-none bg-white/10 rounded-full cursor-pointer" />
-                <p className="text-[8px] text-white/40 font-medium italic">Suppresses background hum for crisp transcription.</p>
+                <p className="text-[8px] text-white/40 font-medium italic">Adjust to isolate your voice from room ambience.</p>
               </div>
 
-              {/* Video Resolution */}
               <div className="space-y-4 pt-4 border-t border-white/10">
                 <div className="flex items-center gap-2 text-[10px] font-black text-green-500 uppercase tracking-widest"><Video size={12} /> Optic Definition</div>
                 <div className="grid grid-cols-3 gap-2">
@@ -604,16 +651,13 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                 </div>
               </div>
 
-              {/* AI Vision Rate */}
               <div className="space-y-3 pt-4 border-t border-white/10">
-                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span className="flex items-center gap-2"><Cpu size={14} /> AI Insight Rate</span><span className="text-green-500">{aiVisionRate} FPS</span></div>
+                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span className="flex items-center gap-2"><Cpu size={14} /> AI Analysis Rate</span><span className="text-green-500">{aiVisionRate} FPS</span></div>
                 <input type="range" min="0.5" max="5" step="0.5" value={aiVisionRate} onChange={(e) => setAiVisionRate(parseFloat(e.target.value))} className="w-full h-1 appearance-none bg-white/10 rounded-full cursor-pointer" />
-                <p className="text-[8px] text-white/40 font-medium italic">Higher rate improves gesture analysis latency.</p>
               </div>
 
-              {/* Hardware FPS */}
               <div className="space-y-3">
-                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span>Camera Frame Rate</span><span className="text-amber-400">{hardwareFPS} Hz</span></div>
+                <div className="flex justify-between items-center text-[10px] font-bold text-white/70 uppercase"><span>Stage Display Rate</span><span className="text-amber-400">{hardwareFPS} Hz</span></div>
                 <div className="grid grid-cols-2 gap-2">
                   {[30, 60].map(fps => (
                     <button 
@@ -637,7 +681,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
                 onClick={() => { setBrightness(100); setNoiseGateThreshold(20); setTargetResolution('720p'); setAiVisionRate(1.5); setHardwareFPS(30); }} 
                 className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black text-white uppercase tracking-widest flex items-center justify-center gap-2 border border-white/5 mt-2 transition-colors"
               >
-                <RotateCcw size={14} /> Reset System
+                <RotateCcw size={14} /> Factory Reset
               </button>
             </div>
           </div>
