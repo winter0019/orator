@@ -39,7 +39,8 @@ import {
   Volume2,
   Flag,
   Video,
-  Cpu
+  Cpu,
+  UserCheck
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, CoachingAlert } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -416,7 +417,7 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
-          systemInstruction: 'You are an NYSC Executive Speech Coach. Focus on administrative command and protocol. Support multi-lingual nuances of Nigeria.'
+          systemInstruction: `You are an NYSC Executive Speech Coach. Focus on administrative command and protocol. Tone target: ${leadershipStyle}. Support multi-lingual nuances of Nigeria.`
         }
       });
 
@@ -670,14 +671,22 @@ const AddressArena: React.FC<{ onAnalysisComplete: (analysis: SessionRecord) => 
       {/* Control Area */}
       {!isPseudoFullScreen && (
         <div className="flex flex-col items-center gap-4 pb-20 md:pb-12">
-          <div className="w-full bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center gap-6 md:gap-10">
-            <div className="w-full md:w-auto flex flex-col gap-1.5 md:pr-10 md:border-r border-slate-100">
-               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Scenario</label>
-               <select value={scenario} disabled={isRecording} onChange={(e) => setScenario(e.target.value as NYSCScenario)} className="w-full md:w-auto font-black text-sm text-slate-800 outline-none bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl cursor-pointer">
+          <div className="w-full bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[3rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center gap-6 md:gap-8">
+            <div className="flex flex-col gap-1.5 flex-1 w-full md:w-auto">
+               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"><Monitor size={10} /> Scenario</label>
+               <select value={scenario} disabled={isRecording} onChange={(e) => setScenario(e.target.value as NYSCScenario)} className="w-full font-black text-sm text-slate-800 outline-none bg-slate-50 p-3 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
                  {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
                </select>
             </div>
-            <div className="w-full md:w-auto flex justify-center flex-1">
+            
+            <div className="flex flex-col gap-1.5 flex-1 w-full md:w-auto">
+               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"><UserCheck size={10} /> Leadership Tone</label>
+               <select value={leadershipStyle} disabled={isRecording} onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)} className="w-full font-black text-sm text-slate-800 outline-none bg-slate-50 p-3 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                 {Object.values(LeadershipStyle).map(ls => <option key={ls} value={ls}>{ls}</option>)}
+               </select>
+            </div>
+
+            <div className="w-full md:w-auto flex justify-center pt-2 md:pt-0">
               {!isRecording && !audioBlob && (
                  <button onClick={startRecording} className="w-full md:w-auto px-10 py-4 bg-slate-900 text-white rounded-2xl font-black hover:bg-slate-800 shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base">
                    <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center"><Play size={16} fill="currentColor" className="ml-0.5" /></div>
