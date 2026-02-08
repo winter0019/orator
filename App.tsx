@@ -26,7 +26,8 @@ import {
   User,
   ZoomIn,
   ZoomOut,
-  ChevronRight
+  ChevronRight,
+  Maximize
 } from 'lucide-react';
 import { NYSCScenario, LeadershipStyle, SessionRecord, SpeechAnalysis } from './types';
 import { analyzeNYSCSpeech } from './services/geminiService';
@@ -122,6 +123,7 @@ const App: React.FC = () => {
   const [frameRate, setFrameRate] = useState<24 | 30 | 60>(30);
   const [useVideo, setUseVideo] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isAppFullscreen, setIsAppFullscreen] = useState(false);
   
   // Zoom State
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -164,6 +166,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
+      setIsAppFullscreen(!!document.fullscreenElement && !document.fullscreenElement.id.includes('video-container'));
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
@@ -237,6 +240,16 @@ const App: React.FC = () => {
     if (!document.fullscreenElement) {
       videoContainerRef.current?.requestFullscreen().catch(err => {
         console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  const toggleAppFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.error(`Error entering app fullscreen: ${err.message}`);
       });
     } else {
       document.exitFullscreen();
@@ -347,15 +360,16 @@ const App: React.FC = () => {
     setScenario(record.scenario);
     if (record.leadershipStyle) setLeadershipStyle(record.leadershipStyle);
     setActiveTab('audit');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const scrollContainer = document.querySelector('.main-scroll-container');
+    if (scrollContainer) scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-slate-950 text-white font-sans selection:bg-green-500/30 overflow-x-hidden">
+    <div className="flex flex-col md:flex-row h-full w-full bg-slate-950 text-white font-sans selection:bg-green-500/30 overflow-hidden">
       <canvas ref={canvasRef} className="hidden" />
       
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 lg:w-80 bg-slate-900 border-r border-white/5 p-6 lg:p-8 gap-10 lg:gap-12 sticky top-0 h-screen">
+      <aside className="hidden md:flex flex-col w-64 lg:w-80 bg-slate-900 border-r border-white/5 p-6 lg:p-8 gap-10 lg:gap-12 h-full overflow-y-auto custom-scrollbar">
         <div className="flex items-center gap-3">
           <div className="bg-green-600 p-2.5 rounded-2xl shadow-lg shadow-green-900/40 shrink-0">
             <Mic className="text-white" size={24} />
@@ -387,21 +401,28 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Container */}
-      <main className="flex-1 flex flex-col min-w-0 pb-24 md:pb-0">
-        <header className="px-5 pt-[calc(1.5rem+var(--sat))] pb-6 md:px-10 md:py-10 flex justify-between items-center sticky top-0 bg-slate-950/90 backdrop-blur-xl z-[60] border-b border-white/5">
-          <div className="space-y-1">
-            <h2 className="text-xl md:text-3xl font-black tracking-tighter uppercase truncate">
-              {activeTab === 'audit' ? 'Address Arena' : activeTab === 'history' ? 'Executive Archives' : 'Policy Center'}
+      <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <header className="px-5 pt-[calc(1rem+var(--sat))] pb-4 md:px-10 md:py-8 flex justify-between items-center bg-slate-950/90 backdrop-blur-xl z-[60] border-b border-white/5 shrink-0">
+          <div className="space-y-0.5">
+            <h2 className="text-lg md:text-3xl font-black tracking-tighter uppercase truncate leading-tight">
+              {activeTab === 'audit' ? 'Arena' : activeTab === 'history' ? 'Archives' : 'Policy'}
             </h2>
-            <div className="flex items-center gap-2 text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+            <div className="flex items-center gap-2 text-[8px] md:text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
               <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
               Terminal ID: NY-042
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
+            <button 
+              onClick={toggleAppFullscreen}
+              className="bg-white/5 p-2.5 md:p-3 rounded-xl border border-white/5 hover:bg-white/10 transition-colors hidden sm:flex items-center gap-2"
+              title="Toggle Fullscreen"
+            >
+              {isAppFullscreen ? <Minimize2 size={20} className="text-slate-400" /> : <Maximize size={20} className="text-slate-400" />}
+            </button>
             {activeTab === 'history' && sessions.length > 0 && (
               <button onClick={() => setSessions([])} className="bg-red-500/10 text-red-500 px-3 md:px-4 py-2.5 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-all flex items-center gap-2 text-[9px] font-black uppercase tracking-widest">
-                <Trash2 size={14} /> <span className="hidden sm:inline">Wipe Data</span>
+                <Trash2 size={14} /> <span className="hidden sm:inline">Wipe</span>
               </button>
             )}
             <button className="bg-white/5 p-2.5 md:p-3 rounded-xl border border-white/5 hover:bg-white/10 transition-colors">
@@ -410,378 +431,380 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="px-4 md:px-10 pt-6 pb-12 space-y-8 md:space-y-12">
-          {activeTab === 'audit' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
-              <div className="lg:col-span-8 space-y-6 md:space-y-8">
-                {/* Configuration Panel */}
-                <div className="bg-slate-900 rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-8 border border-white/5 shadow-xl space-y-6 md:space-y-8">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 md:gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Mission Scenario</label>
-                      <div className="relative">
-                        <select 
-                          value={scenario}
-                          onChange={(e) => setScenario(e.target.value as NYSCScenario)}
-                          className="w-full bg-slate-800/80 border border-white/5 rounded-xl md:rounded-2xl py-3 md:py-4 px-4 text-xs md:text-sm font-bold text-white focus:ring-2 focus:ring-green-500 appearance-none outline-none pr-10"
-                        >
-                          {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 rotate-90 pointer-events-none" size={16} />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Leadership Tone</label>
-                      <div className="relative">
-                        <select 
-                          value={leadershipStyle}
-                          onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)}
-                          className="w-full bg-slate-800/80 border border-white/5 rounded-xl md:rounded-2xl py-3 md:py-4 px-4 text-xs md:text-sm font-bold text-white focus:ring-2 focus:ring-green-500 appearance-none outline-none pr-10"
-                        >
-                          {Object.values(LeadershipStyle).map(l => <option key={l} value={l}>{l}</option>)}
-                        </select>
-                        <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 rotate-90 pointer-events-none" size={16} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Calibration Bar */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6 pt-5 border-t border-white/5">
-                    <div className="space-y-2 col-span-1">
-                      <label className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        <Video size={10} className="text-green-500" /> Resolution
-                      </label>
-                      <div className="flex bg-slate-800 p-1 rounded-xl">
-                        {(['720p', '1080p'] as const).map(res => (
-                          <button
-                            key={res}
-                            onClick={() => setResolution(res)}
-                            className={`flex-1 py-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-tighter rounded-lg transition-all ${resolution === res ? 'bg-green-600 text-white shadow-md' : 'text-slate-400'}`}
+        <div className="flex-1 overflow-y-auto custom-scrollbar main-scroll-container pb-[calc(5rem+var(--sab))] md:pb-12">
+          <div className="px-4 md:px-10 pt-6 space-y-8 md:space-y-12">
+            {activeTab === 'audit' && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
+                <div className="lg:col-span-8 space-y-6 md:space-y-8">
+                  {/* Configuration Panel */}
+                  <div className="bg-slate-900 rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-8 border border-white/5 shadow-xl space-y-6 md:space-y-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 md:gap-8">
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Mission Scenario</label>
+                        <div className="relative">
+                          <select 
+                            value={scenario}
+                            onChange={(e) => setScenario(e.target.value as NYSCScenario)}
+                            className="w-full bg-slate-800/80 border border-white/5 rounded-xl md:rounded-2xl py-3 md:py-4 px-4 text-xs md:text-sm font-bold text-white focus:ring-2 focus:ring-green-500 appearance-none outline-none pr-10"
                           >
-                            {res}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2 col-span-1">
-                      <label className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        <Activity size={10} className="text-green-500" /> FPS
-                      </label>
-                      <div className="flex bg-slate-800 p-1 rounded-xl">
-                        {([30, 60] as const).map(fps => (
-                          <button
-                            key={fps}
-                            onClick={() => setFrameRate(fps)}
-                            className={`flex-1 py-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-tighter rounded-lg transition-all ${frameRate === fps ? 'bg-green-600 text-white shadow-md' : 'text-slate-400'}`}
-                          >
-                            {fps}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 col-span-2 md:col-span-1">
-                      <label className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        <Zap size={10} className="text-green-500" /> Capture
-                      </label>
-                      <button
-                        onClick={() => setUseVideo(!useVideo)}
-                        className={`w-full py-2 px-3 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest border transition-all ${useVideo ? 'bg-green-600/10 border-green-500 text-green-500 shadow-[0_0_15px_rgba(34,197,94,0.1)]' : 'bg-slate-800 border-white/5 text-slate-400'}`}
-                      >
-                        {useVideo ? 'Multi-Modal' : 'Audio-Only'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6">
-                    {useVideo && (
-                      <div ref={videoContainerRef} className="relative w-full aspect-video bg-black rounded-[1.5rem] md:rounded-[2rem] overflow-hidden border border-white/10 group shadow-2xl">
-                         <video 
-                           ref={videoRef} 
-                           autoPlay 
-                           muted 
-                           playsInline 
-                           className={`w-full h-full object-cover transition-all duration-700 ${isRecording ? 'grayscale-0' : 'grayscale-50 brightness-75'}`} 
-                         />
-                         
-                         {/* Video Overlay Top */}
-                         <div className="absolute top-3 left-3 right-3 flex justify-between items-start pointer-events-none">
-                           <div className="flex flex-wrap gap-1.5">
-                             <div className="bg-red-600 px-2.5 py-1 rounded-full text-[7px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 pointer-events-auto shadow-lg">
-                               <div className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full bg-white ${isRecording ? 'animate-pulse' : ''}`} />
-                               {isRecording ? 'Capturing' : 'Preview'}
-                             </div>
-                             <div className="bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full text-[7px] md:text-[9px] font-black uppercase tracking-widest border border-white/10 pointer-events-auto">
-                               {resolution} • {frameRate}
-                             </div>
-                           </div>
-                           <button 
-                             onClick={toggleFullscreen}
-                             className="bg-black/40 backdrop-blur-md p-1.5 md:p-2 rounded-xl border border-white/10 text-white hover:bg-green-600 transition-all pointer-events-auto shadow-lg"
-                           >
-                             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                           </button>
-                         </div>
-
-                         {/* Responsive Zoom Slider Overlay */}
-                         {zoomCapabilities && (
-                           <div className="absolute bottom-4 left-4 right-4 md:right-auto md:left-auto md:top-1/2 md:-translate-y-1/2 md:right-4 flex flex-row md:flex-col items-center gap-3 bg-black/60 backdrop-blur-md p-2.5 rounded-2xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-auto">
-                             <ZoomOut size={14} className="text-white shrink-0" />
-                             <input 
-                               type="range"
-                               min={zoomCapabilities.min}
-                               max={zoomCapabilities.max}
-                               step={zoomCapabilities.step}
-                               value={zoomLevel}
-                               onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
-                               className="w-full md:h-24 md:w-3 accent-green-500 cursor-pointer"
-                               style={{ writingMode: 'bt-lr' } as any}
-                             />
-                             <ZoomIn size={14} className="text-white shrink-0" />
-                           </div>
-                         )}
-
-                         {isFullscreen && (
-                           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-5 bg-black/80 backdrop-blur-2xl px-6 py-4 rounded-[2.5rem] border border-white/10 shadow-3xl animate-in slide-in-from-bottom-10 duration-500 pointer-events-auto">
-                              <button 
-                                onClick={toggleRecording}
-                                disabled={isAnalyzing}
-                                className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 scale-105 shadow-[0_0_20px_rgba(239,68,68,0.4)]' : 'bg-green-600 hover:scale-105'}`}
-                              >
-                                {isRecording ? <Square fill="white" size={18} /> : <Mic size={20} className="text-white" />}
-                              </button>
-                              <div className="space-y-0.5 min-w-[100px]">
-                                <p className="text-[9px] md:text-xs font-black uppercase tracking-[0.1em] text-white">
-                                  {isRecording ? 'Live Audit' : 'Standby'}
-                                </p>
-                                <p className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">
-                                  {scenario}
-                                </p>
-                              </div>
-                           </div>
-                         )}
-                      </div>
-                    )}
-
-                    {!isFullscreen && (
-                      <div className="flex flex-col items-center justify-center py-10 md:py-20 border-2 border-dashed border-white/10 rounded-[2rem] md:rounded-[2.5rem] gap-6 md:gap-8 relative overflow-hidden group hover:border-green-500/40 transition-all bg-slate-800/20">
-                        <button 
-                          onClick={toggleRecording}
-                          disabled={isAnalyzing}
-                          className={`relative z-10 w-20 h-20 md:w-32 md:h-32 rounded-full flex items-center justify-center transition-all duration-700 ${isRecording ? 'bg-red-500 shadow-[0_0_60px_rgba(239,68,68,0.5)] scale-110 rotate-180' : 'bg-green-600 shadow-[0_0_60px_rgba(34,197,94,0.4)] hover:scale-110 hover:shadow-green-500/60'}`}
-                        >
-                          {isRecording ? <Square fill="white" size={28} /> : <Mic size={32} md:size={40} className="text-white" />}
-                        </button>
-
-                        <div className="text-center space-y-2 md:space-y-3 relative z-10 px-4">
-                          <p className="text-base md:text-2xl font-black tracking-tight uppercase">
-                            {isRecording ? 'Monitoring Signal...' : isAnalyzing ? 'Processing Audit...' : 'Initialize Session'}
-                          </p>
-                          <p className="text-[9px] md:text-xs font-bold text-slate-500 uppercase tracking-[0.2em] leading-relaxed max-w-[240px] md:max-w-none mx-auto">
-                            {isRecording ? `Secure Encryption • ${resolution}` : 'Select scenario and click node to begin'}
-                          </p>
+                            {Object.values(NYSCScenario).map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 rotate-90 pointer-events-none" size={16} />
                         </div>
-
-                        {isAnalyzing && (
-                          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center z-20 animate-in fade-in duration-500">
-                            <div className="flex gap-1 mb-6">
-                              {[1,2,3,4].map(i => <div key={i} className="w-1.5 h-8 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
-                            </div>
-                            <span className="text-[8px] font-black uppercase tracking-[0.3em] text-green-500 animate-pulse">Analyzing Executive Intel</span>
-                          </div>
-                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Leadership Tone</label>
+                        <div className="relative">
+                          <select 
+                            value={leadershipStyle}
+                            onChange={(e) => setLeadershipStyle(e.target.value as LeadershipStyle)}
+                            className="w-full bg-slate-800/80 border border-white/5 rounded-xl md:rounded-2xl py-3 md:py-4 px-4 text-xs md:text-sm font-bold text-white focus:ring-2 focus:ring-green-500 appearance-none outline-none pr-10"
+                          >
+                            {Object.values(LeadershipStyle).map(l => <option key={l} value={l}>{l}</option>)}
+                          </select>
+                          <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 rotate-90 pointer-events-none" size={16} />
+                        </div>
+                      </div>
+                    </div>
 
-                {/* Scorecard Display */}
-                {analysis && (
-                  <div className="space-y-6 md:space-y-12 animate-in slide-in-from-bottom-12 duration-1000">
-                    <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 space-y-8 md:space-y-14 shadow-2xl overflow-hidden relative">
-                      <div className="absolute top-0 left-0 w-full h-1.5 md:h-2 bg-gradient-to-r from-green-500 via-green-400 to-green-600" />
+                    {/* Calibration Bar */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6 pt-5 border-t border-white/5">
+                      <div className="space-y-2 col-span-1">
+                        <label className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          <Video size={10} className="text-green-500" /> Resolution
+                        </label>
+                        <div className="flex bg-slate-800 p-1 rounded-xl">
+                          {(['720p', '1080p'] as const).map(res => (
+                            <button
+                              key={res}
+                              onClick={() => setResolution(res)}
+                              className={`flex-1 py-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-tighter rounded-lg transition-all ${resolution === res ? 'bg-green-600 text-white shadow-md' : 'text-slate-400'}`}
+                            >
+                              {res}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       
-                      <div className="flex flex-col md:flex-row justify-between items-start gap-6 md:gap-8">
-                        <div className="space-y-3 text-slate-950 w-full md:w-auto">
-                          <h3 className="text-2xl md:text-5xl font-black tracking-tighter uppercase leading-tight md:leading-none">Performance<br/>Audit</h3>
-                          <div className="flex flex-wrap gap-1.5">
-                            <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2.5 py-1.5 rounded-lg uppercase tracking-widest border border-slate-200">ID: {sessions[0]?.id.slice(-6)}</span>
-                            <span className="text-[9px] font-black bg-green-100 text-green-700 px-2.5 py-1.5 rounded-lg uppercase tracking-widest border border-green-200">Engine V3</span>
-                          </div>
-                        </div>
-                        <div className="text-left md:text-right w-full md:w-auto">
-                          <div className="text-6xl md:text-9xl font-black tracking-tighter leading-none text-slate-900 flex items-baseline md:justify-end">
-                            {analysis.overallScore}<span className="text-2xl md:text-4xl text-slate-300 ml-1">%</span>
-                          </div>
-                          <div className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 md:mt-4">Command Proficiency Index</div>
+                      <div className="space-y-2 col-span-1">
+                        <label className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          <Activity size={10} className="text-green-500" /> FPS
+                        </label>
+                        <div className="flex bg-slate-800 p-1 rounded-xl">
+                          {([30, 60] as const).map(fps => (
+                            <button
+                              key={fps}
+                              onClick={() => setFrameRate(fps)}
+                              className={`flex-1 py-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-tighter rounded-lg transition-all ${frameRate === fps ? 'bg-green-600 text-white shadow-md' : 'text-slate-400'}`}
+                            >
+                              {fps}
+                            </button>
+                          ))}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
-                        {analysis.metrics?.map((m: any, idx: number) => (
-                          <MetricCard key={idx} {...m} />
-                        ))}
+                      <div className="space-y-2 col-span-2 md:col-span-1">
+                        <label className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          <Zap size={10} className="text-green-500" /> Capture
+                        </label>
+                        <button
+                          onClick={() => setUseVideo(!useVideo)}
+                          className={`w-full py-2 px-3 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest border transition-all ${useVideo ? 'bg-green-600/10 border-green-500 text-green-500 shadow-[0_0_15px_rgba(34,197,94,0.1)]' : 'bg-slate-800 border-white/5 text-slate-400'}`}
+                        >
+                          {useVideo ? 'Multi-Modal' : 'Audio-Only'}
+                        </button>
                       </div>
+                    </div>
 
-                      {analysis.visualFeedback && (
-                        <div className="bg-slate-950 rounded-[2rem] p-5 md:p-10 space-y-6 md:space-y-8">
-                           <div className="flex items-center gap-4">
-                            <div className="h-px flex-1 bg-white/5" />
-                            <span className="text-[9px] md:text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] whitespace-nowrap">Visual Intelligence</span>
-                            <div className="h-px flex-1 bg-white/5" />
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-5">
-                            <VisualInsight icon={Smile} label="Emotions" feedback={analysis.visualFeedback.emotionalState} />
-                            <VisualInsight icon={User} label="Posture" feedback={analysis.visualFeedback.posture} />
-                            <VisualInsight icon={MoveHorizontal} label="Gestures" feedback={analysis.visualFeedback.gestures} />
-                            <VisualInsight icon={Eye} label="Gaze" feedback={analysis.visualFeedback.eyeContact} />
-                          </div>
+                    <div className="space-y-6">
+                      {useVideo && (
+                        <div id="video-container" ref={videoContainerRef} className="relative w-full aspect-video bg-black rounded-[1.5rem] md:rounded-[2rem] overflow-hidden border border-white/10 group shadow-2xl">
+                           <video 
+                             ref={videoRef} 
+                             autoPlay 
+                             muted 
+                             playsInline 
+                             className={`w-full h-full object-cover transition-all duration-700 ${isRecording ? 'grayscale-0' : 'grayscale-50 brightness-75'}`} 
+                           />
+                           
+                           {/* Video Overlay Top */}
+                           <div className="absolute top-3 left-3 right-3 flex justify-between items-start pointer-events-none">
+                             <div className="flex flex-wrap gap-1.5">
+                               <div className="bg-red-600 px-2.5 py-1 rounded-full text-[7px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 pointer-events-auto shadow-lg">
+                                 <div className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full bg-white ${isRecording ? 'animate-pulse' : ''}`} />
+                                 {isRecording ? 'Capturing' : 'Preview'}
+                               </div>
+                               <div className="bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full text-[7px] md:text-[9px] font-black uppercase tracking-widest border border-white/10 pointer-events-auto">
+                                 {resolution} • {frameRate}
+                               </div>
+                             </div>
+                             <button 
+                               onClick={toggleFullscreen}
+                               className="bg-black/40 backdrop-blur-md p-1.5 md:p-2 rounded-xl border border-white/10 text-white hover:bg-green-600 transition-all pointer-events-auto shadow-lg"
+                             >
+                               {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                             </button>
+                           </div>
+
+                           {/* Responsive Zoom Slider Overlay */}
+                           {zoomCapabilities && (
+                             <div className="absolute bottom-4 left-4 right-4 md:right-auto md:left-auto md:top-1/2 md:-translate-y-1/2 md:right-4 flex flex-row md:flex-col items-center gap-3 bg-black/60 backdrop-blur-md p-2.5 rounded-2xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-auto">
+                               <ZoomOut size={14} className="text-white shrink-0" />
+                               <input 
+                                 type="range"
+                                 min={zoomCapabilities.min}
+                                 max={zoomCapabilities.max}
+                                 step={zoomCapabilities.step}
+                                 value={zoomLevel}
+                                 onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                                 className="w-full md:h-24 md:w-3 accent-green-500 cursor-pointer"
+                                 style={{ writingMode: 'bt-lr' } as any}
+                               />
+                               <ZoomIn size={14} className="text-white shrink-0" />
+                             </div>
+                           )}
+
+                           {isFullscreen && (
+                             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-5 bg-black/80 backdrop-blur-2xl px-6 py-4 rounded-[2.5rem] border border-white/10 shadow-3xl animate-in slide-in-from-bottom-10 duration-500 pointer-events-auto">
+                                <button 
+                                  onClick={toggleRecording}
+                                  disabled={isAnalyzing}
+                                  className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 scale-105 shadow-[0_0_20px_rgba(239,68,68,0.4)]' : 'bg-green-600 hover:scale-105'}`}
+                                >
+                                  {isRecording ? <Square fill="white" size={18} /> : <Mic size={20} className="text-white" />}
+                                </button>
+                                <div className="space-y-0.5 min-w-[100px]">
+                                  <p className="text-[9px] md:text-xs font-black uppercase tracking-[0.1em] text-white">
+                                    {isRecording ? 'Live Audit' : 'Standby'}
+                                  </p>
+                                  <p className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">
+                                    {scenario}
+                                  </p>
+                                </div>
+                             </div>
+                           )}
                         </div>
                       )}
 
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-16">
-                        <div className="space-y-5">
-                          <h4 className="flex items-center gap-2.5 text-[10px] md:text-sm font-black text-green-600 uppercase tracking-widest"><TrendingUp size={18} /> Core Strengths</h4>
-                          <ul className="space-y-3">
-                            {analysis.strengths?.map((s: string, i: number) => (
-                              <li key={i} className="flex gap-3 text-xs md:text-base font-bold text-slate-600 bg-green-50/50 p-4 rounded-xl border border-green-100">
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                                {s}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="space-y-5">
-                          <h4 className="flex items-center gap-2.5 text-[10px] md:text-sm font-black text-amber-600 uppercase tracking-widest"><AlertCircle size={18} /> Growth Areas</h4>
-                          <ul className="space-y-3">
-                            {analysis.improvements?.map((im: string, i: number) => (
-                              <li key={i} className="flex gap-3 text-xs md:text-base font-bold text-slate-600 bg-amber-50/50 p-4 rounded-xl border border-amber-100">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
-                                {im}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
+                      {!isFullscreen && (
+                        <div className="flex flex-col items-center justify-center py-10 md:py-20 border-2 border-dashed border-white/10 rounded-[2rem] md:rounded-[2.5rem] gap-6 md:gap-8 relative overflow-hidden group hover:border-green-500/40 transition-all bg-slate-800/20">
+                          <button 
+                            onClick={toggleRecording}
+                            disabled={isAnalyzing}
+                            className={`relative z-10 w-20 h-20 md:w-32 md:h-32 rounded-full flex items-center justify-center transition-all duration-700 ${isRecording ? 'bg-red-500 shadow-[0_0_60px_rgba(239,68,68,0.5)] scale-110 rotate-180' : 'bg-green-600 shadow-[0_0_60px_rgba(34,197,94,0.4)] hover:scale-110 hover:shadow-green-500/60'}`}
+                          >
+                            {isRecording ? <Square fill="white" size={28} /> : <Mic size={32} md:size={40} className="text-white" />}
+                          </button>
 
-                      <div className="bg-slate-950 rounded-[2rem] p-5 md:p-10 space-y-4 md:space-y-6">
-                        <div className="flex justify-between items-center">
-                          <h4 className="text-[9px] md:text-xs font-black text-slate-500 uppercase tracking-widest">Transcript</h4>
-                          <button className="text-[9px] font-black text-green-500 uppercase tracking-widest hover:text-green-400 transition-colors">Export</button>
+                          <div className="text-center space-y-2 md:space-y-3 relative z-10 px-4">
+                            <p className="text-base md:text-2xl font-black tracking-tight uppercase leading-tight">
+                              {isRecording ? 'Monitoring Signal...' : isAnalyzing ? 'Processing Audit...' : 'Initialize Session'}
+                            </p>
+                            <p className="text-[9px] md:text-xs font-bold text-slate-500 uppercase tracking-[0.2em] leading-relaxed max-w-[240px] md:max-w-none mx-auto">
+                              {isRecording ? `Secure Encryption • ${resolution}` : 'Select scenario and click node to begin'}
+                            </p>
+                          </div>
+
+                          {isAnalyzing && (
+                            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center z-20 animate-in fade-in duration-500">
+                              <div className="flex gap-1 mb-6">
+                                {[1,2,3,4].map(i => <div key={i} className="w-1.5 h-8 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+                              </div>
+                              <span className="text-[8px] font-black uppercase tracking-[0.3em] text-green-500 animate-pulse">Analyzing Executive Intel</span>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-xs md:text-lg font-bold text-slate-200 leading-relaxed italic opacity-90">"{analysis.transcript}"</p>
-                      </div>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* Responsive Side Panels */}
-              <div className="lg:col-span-4 space-y-6 md:space-y-8">
-                <div className="bg-slate-900 rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-8 border border-white/5 shadow-xl space-y-6 md:space-y-8 lg:sticky lg:top-28">
-                  <div className="space-y-1">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Directives</h3>
-                    <p className="text-[8px] md:text-[9px] font-bold text-slate-500 uppercase tracking-widest">Target Talking Points</p>
-                  </div>
-                  
-                  <div className="space-y-3 md:space-y-4">
-                    {analysis?.suggestedPoints?.map((p: string, i: number) => (
-                      <div key={i} className="p-4 md:p-5 bg-slate-800/50 rounded-[1.25rem] border border-white/5 flex gap-3 hover:bg-slate-800 transition-colors group">
-                        <div className="bg-green-600/20 text-green-500 w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center text-[10px] md:text-xs font-black shrink-0 group-hover:bg-green-600 group-hover:text-white transition-all">{i+1}</div>
-                        <p className="text-[11px] md:text-sm font-bold text-slate-300 leading-relaxed">{p}</p>
-                      </div>
-                    )) || (
-                      <div className="flex flex-col items-center justify-center py-12 md:py-16 text-slate-700 text-center space-y-4">
-                        <div className="bg-slate-800/40 p-5 rounded-full"><Lightbulb size={28} className="text-slate-600" /></div>
-                        <p className="text-[9px] font-black uppercase tracking-[0.2em]">Awaiting Input</p>
-                      </div>
-                    )}
-                  </div>
+                  {/* Scorecard Display */}
+                  {analysis && (
+                    <div className="space-y-6 md:space-y-12 animate-in slide-in-from-bottom-12 duration-1000">
+                      <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 space-y-8 md:space-y-14 shadow-2xl overflow-hidden relative">
+                        <div className="absolute top-0 left-0 w-full h-1.5 md:h-2 bg-gradient-to-r from-green-500 via-green-400 to-green-600" />
+                        
+                        <div className="flex flex-col md:flex-row justify-between items-start gap-6 md:gap-8">
+                          <div className="space-y-3 text-slate-950 w-full md:w-auto">
+                            <h3 className="text-2xl md:text-5xl font-black tracking-tighter uppercase leading-tight md:leading-none">Performance<br/>Audit</h3>
+                            <div className="flex flex-wrap gap-1.5">
+                              <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2.5 py-1.5 rounded-lg uppercase tracking-widest border border-slate-200">ID: {sessions[0]?.id.slice(-6)}</span>
+                              <span className="text-[9px] font-black bg-green-100 text-green-700 px-2.5 py-1.5 rounded-lg uppercase tracking-widest border border-green-200">Engine V3</span>
+                            </div>
+                          </div>
+                          <div className="text-left md:text-right w-full md:w-auto">
+                            <div className="text-6xl md:text-9xl font-black tracking-tighter leading-none text-slate-900 flex items-baseline md:justify-end">
+                              {analysis.overallScore}<span className="text-2xl md:text-4xl text-slate-300 ml-1">%</span>
+                            </div>
+                            <div className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 md:mt-4">Command Proficiency Index</div>
+                          </div>
+                        </div>
 
-                  <div className="bg-gradient-to-br from-green-600 to-green-800 rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8 shadow-xl shadow-green-900/30 space-y-4 md:space-y-6 mt-6 md:mt-10">
-                    <div className="bg-white/20 w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center text-white"><Zap size={20} md:size={24} /></div>
-                    <div className="space-y-1 md:space-y-2">
-                      <h3 className="font-black text-base md:text-xl tracking-tighter uppercase">Rapid Drills</h3>
-                      <p className="text-[10px] md:text-xs font-bold text-white/70 leading-relaxed">Engage in high-intensity verbal drills to refine presence.</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+                          {analysis.metrics?.map((m: any, idx: number) => (
+                            <MetricCard key={idx} {...m} />
+                          ))}
+                        </div>
+
+                        {analysis.visualFeedback && (
+                          <div className="bg-slate-950 rounded-[2rem] p-5 md:p-10 space-y-6 md:space-y-8">
+                             <div className="flex items-center gap-4">
+                              <div className="h-px flex-1 bg-white/5" />
+                              <span className="text-[9px] md:text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] whitespace-nowrap">Visual Intelligence</span>
+                              <div className="h-px flex-1 bg-white/5" />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-5">
+                              <VisualInsight icon={Smile} label="Emotions" feedback={analysis.visualFeedback.emotionalState} />
+                              <VisualInsight icon={User} label="Posture" feedback={analysis.visualFeedback.posture} />
+                              <VisualInsight icon={MoveHorizontal} label="Gestures" feedback={analysis.visualFeedback.gestures} />
+                              <VisualInsight icon={Eye} label="Gaze" feedback={analysis.visualFeedback.eyeContact} />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-16">
+                          <div className="space-y-5">
+                            <h4 className="flex items-center gap-2.5 text-[10px] md:text-sm font-black text-green-600 uppercase tracking-widest"><TrendingUp size={18} /> Core Strengths</h4>
+                            <ul className="space-y-3">
+                              {analysis.strengths?.map((s: string, i: number) => (
+                                <li key={i} className="flex gap-3 text-xs md:text-base font-bold text-slate-600 bg-green-50/50 p-4 rounded-xl border border-green-100">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                                  {s}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="space-y-5">
+                            <h4 className="flex items-center gap-2.5 text-[10px] md:text-sm font-black text-amber-600 uppercase tracking-widest"><AlertCircle size={18} /> Growth Areas</h4>
+                            <ul className="space-y-3">
+                              {analysis.improvements?.map((im: string, i: number) => (
+                                <li key={i} className="flex gap-3 text-xs md:text-base font-bold text-slate-600 bg-amber-50/50 p-4 rounded-xl border border-amber-100">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
+                                  {im}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-950 rounded-[2rem] p-5 md:p-10 space-y-4 md:space-y-6">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-[9px] md:text-xs font-black text-slate-500 uppercase tracking-widest">Transcript</h4>
+                            <button className="text-[9px] font-black text-green-500 uppercase tracking-widest hover:text-green-400 transition-colors">Export</button>
+                          </div>
+                          <p className="text-xs md:text-lg font-bold text-slate-200 leading-relaxed italic opacity-90">"{analysis.transcript}"</p>
+                        </div>
+                      </div>
                     </div>
-                    <button className="w-full py-3 md:py-4 bg-white text-green-800 rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Start Drill</button>
+                  )}
+                </div>
+
+                {/* Responsive Side Panels */}
+                <div className="lg:col-span-4 space-y-6 md:space-y-8">
+                  <div className="bg-slate-900 rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-8 border border-white/5 shadow-xl space-y-6 md:space-y-8 lg:sticky lg:top-2">
+                    <div className="space-y-1">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Directives</h3>
+                      <p className="text-[8px] md:text-[9px] font-bold text-slate-500 uppercase tracking-widest">Target Talking Points</p>
+                    </div>
+                    
+                    <div className="space-y-3 md:space-y-4">
+                      {analysis?.suggestedPoints?.map((p: string, i: number) => (
+                        <div key={i} className="p-4 md:p-5 bg-slate-800/50 rounded-[1.25rem] border border-white/5 flex gap-3 hover:bg-slate-800 transition-colors group">
+                          <div className="bg-green-600/20 text-green-500 w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center text-[10px] md:text-xs font-black shrink-0 group-hover:bg-green-600 group-hover:text-white transition-all">{i+1}</div>
+                          <p className="text-[11px] md:text-sm font-bold text-slate-300 leading-relaxed">{p}</p>
+                        </div>
+                      )) || (
+                        <div className="flex flex-col items-center justify-center py-12 md:py-16 text-slate-700 text-center space-y-4">
+                          <div className="bg-slate-800/40 p-5 rounded-full"><Lightbulb size={28} className="text-slate-600" /></div>
+                          <p className="text-[9px] font-black uppercase tracking-[0.2em]">Awaiting Input</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-gradient-to-br from-green-600 to-green-800 rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8 shadow-xl shadow-green-900/30 space-y-4 md:space-y-6 mt-6 md:mt-10">
+                      <div className="bg-white/20 w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center text-white"><Zap size={20} md:size={24} /></div>
+                      <div className="space-y-1 md:space-y-2">
+                        <h3 className="font-black text-base md:text-xl tracking-tighter uppercase leading-tight">Rapid Drills</h3>
+                        <p className="text-[10px] md:text-xs font-bold text-white/70 leading-relaxed">Engage in high-intensity verbal drills to refine presence.</p>
+                      </div>
+                      <button className="w-full py-3 md:py-4 bg-white text-green-800 rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Start Drill</button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {activeTab === 'history' && (
-             <div className="space-y-8 animate-in fade-in duration-700">
-               {sessions.length === 0 ? (
-                 <div className="flex flex-col items-center justify-center py-32 md:py-40 space-y-6 text-slate-700">
-                   <div className="bg-slate-900 p-8 md:p-10 rounded-full border border-white/5"><History size={48} md:size={64} /></div>
-                   <div className="text-center space-y-2">
-                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Archives Clean</h3>
-                    <p className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em]">No official sessions logged yet.</p>
-                   </div>
-                 </div>
-               ) : (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 md:gap-8">
-                   {sessions.map((record) => (
-                     <div 
-                      key={record.id} 
-                      onClick={() => loadArchive(record)}
-                      className="bg-slate-900/40 p-6 md:p-8 rounded-[2rem] border border-white/5 space-y-6 md:space-y-8 hover:bg-slate-900 hover:border-green-500/30 transition-all group cursor-pointer shadow-lg"
-                    >
-                       <div className="flex justify-between items-start">
-                         <div className="space-y-1.5 flex-1 pr-3">
-                           <h3 className="font-black text-white uppercase tracking-tight line-clamp-2 text-sm md:text-base">{record.scenario}</h3>
-                           <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{record.date}</p>
-                         </div>
-                         <div className="text-3xl md:text-4xl font-black text-green-500 tracking-tighter group-hover:scale-110 transition-transform">
-                          {record.analysis.overallScore}<span className="text-xs md:text-sm text-slate-600">%</span>
-                         </div>
-                       </div>
-                       <div className="flex gap-2.5">
-                         <button className="flex-1 py-3 bg-white/5 rounded-xl text-[9px] font-black text-white uppercase tracking-widest border border-white/5 group-hover:bg-green-600 transition-colors">Re-Analyze</button>
-                         <button 
-                          onClick={(e) => { e.stopPropagation(); setSessions(prev => prev.filter(s => s.id !== record.id)); }} 
-                          className="p-3 bg-red-500/10 rounded-xl text-red-500 border border-red-500/10 hover:bg-red-500/20 transition-all"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                       </div>
+            {activeTab === 'history' && (
+               <div className="space-y-8 animate-in fade-in duration-700">
+                 {sessions.length === 0 ? (
+                   <div className="flex flex-col items-center justify-center py-32 md:py-40 space-y-6 text-slate-700">
+                     <div className="bg-slate-900 p-8 md:p-10 rounded-full border border-white/5"><History size={48} md:size={64} /></div>
+                     <div className="text-center space-y-2">
+                      <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Archives Clean</h3>
+                      <p className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em]">No official sessions logged yet.</p>
                      </div>
-                   ))}
-                 </div>
-               )}
-             </div>
-          )}
+                   </div>
+                 ) : (
+                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 md:gap-8">
+                     {sessions.map((record) => (
+                       <div 
+                        key={record.id} 
+                        onClick={() => loadArchive(record)}
+                        className="bg-slate-900/40 p-6 md:p-8 rounded-[2rem] border border-white/5 space-y-6 md:space-y-8 hover:bg-slate-900 hover:border-green-500/30 transition-all group cursor-pointer shadow-lg"
+                      >
+                         <div className="flex justify-between items-start">
+                           <div className="space-y-1.5 flex-1 pr-3">
+                             <h3 className="font-black text-white uppercase tracking-tight line-clamp-2 text-sm md:text-base">{record.scenario}</h3>
+                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{record.date}</p>
+                           </div>
+                           <div className="text-3xl md:text-4xl font-black text-green-500 tracking-tighter group-hover:scale-110 transition-transform">
+                            {record.analysis.overallScore}<span className="text-xs md:text-sm text-slate-600">%</span>
+                           </div>
+                         </div>
+                         <div className="flex gap-2.5">
+                           <button className="flex-1 py-3 bg-white/5 rounded-xl text-[9px] font-black text-white uppercase tracking-widest border border-white/5 group-hover:bg-green-600 transition-colors">Re-Analyze</button>
+                           <button 
+                            onClick={(e) => { e.stopPropagation(); setSessions(prev => prev.filter(s => s.id !== record.id)); }} 
+                            className="p-3 bg-red-500/10 rounded-xl text-red-500 border border-red-500/10 hover:bg-red-500/20 transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
+            )}
 
-          {activeTab === 'policy' && (
-             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 md:gap-8 animate-in slide-in-from-bottom-10 duration-700">
-               {[
-                { title: 'NYSC Act 2004', desc: 'Primary Legal Framework' },
-                { title: 'SAED Guidelines', desc: 'Skill Acquisition Directives' },
-                { title: 'PPA Deployment', desc: 'Protocol for Assignments' },
-                { title: 'Disciplinary Code', desc: 'Bye-Laws & Enforcement' },
-                { title: 'Service Benefits', desc: 'Allowance & Insurance' },
-                { title: 'Executive Ethics', desc: 'Code of Conduct' }
-               ].map((p) => (
-                 <div key={p.title} className="bg-slate-900/60 p-6 md:p-8 rounded-[1.75rem] md:rounded-[2.5rem] border border-white/5 space-y-5 md:space-y-6 hover:border-green-500/50 hover:bg-slate-900 transition-all group cursor-pointer shadow-xl">
-                   <div className="flex justify-between items-start">
-                     <div className="bg-slate-800 p-3.5 rounded-xl text-slate-400 group-hover:text-green-500 group-hover:bg-green-500/10 transition-all"><ShieldCheck size={24} strokeWidth={1.5} /></div>
-                     <ExternalLink size={18} className="text-slate-700 group-hover:text-slate-400 transition-colors" />
+            {activeTab === 'policy' && (
+               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 md:gap-8 animate-in slide-in-from-bottom-10 duration-700">
+                 {[
+                  { title: 'NYSC Act 2004', desc: 'Primary Legal Framework' },
+                  { title: 'SAED Guidelines', desc: 'Skill Acquisition Directives' },
+                  { title: 'PPA Deployment', desc: 'Protocol for Assignments' },
+                  { title: 'Disciplinary Code', desc: 'Bye-Laws & Enforcement' },
+                  { title: 'Service Benefits', desc: 'Allowance & Insurance' },
+                  { title: 'Executive Ethics', desc: 'Code of Conduct' }
+                 ].map((p) => (
+                   <div key={p.title} className="bg-slate-900/60 p-6 md:p-8 rounded-[1.75rem] md:rounded-[2.5rem] border border-white/5 space-y-5 md:space-y-6 hover:border-green-500/50 hover:bg-slate-900 transition-all group cursor-pointer shadow-xl">
+                     <div className="flex justify-between items-start">
+                       <div className="bg-slate-800 p-3.5 rounded-xl text-slate-400 group-hover:text-green-500 group-hover:bg-green-500/10 transition-all"><ShieldCheck size={24} strokeWidth={1.5} /></div>
+                       <ExternalLink size={18} className="text-slate-700 group-hover:text-slate-400 transition-colors" />
+                     </div>
+                     <div className="space-y-1.5">
+                       <h3 className="text-base md:text-lg font-black uppercase tracking-tighter text-white group-hover:text-green-400 transition-colors">{p.title}</h3>
+                       <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em]">{p.desc}</p>
+                     </div>
+                     <div className="pt-3.5 border-t border-white/5 flex items-center justify-between">
+                      <span className="text-[8px] font-black uppercase text-slate-600 group-hover:text-slate-400">Restricted Access</span>
+                      <ChevronRight size={12} className="text-slate-700 group-hover:text-green-500 translate-x-0 group-hover:translate-x-1 transition-all" />
+                     </div>
                    </div>
-                   <div className="space-y-1.5">
-                     <h3 className="text-base md:text-lg font-black uppercase tracking-tighter text-white group-hover:text-green-400 transition-colors">{p.title}</h3>
-                     <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em]">{p.desc}</p>
-                   </div>
-                   <div className="pt-3.5 border-t border-white/5 flex items-center justify-between">
-                    <span className="text-[8px] font-black uppercase text-slate-600 group-hover:text-slate-400">Restricted Access</span>
-                    <ChevronRight size={12} className="text-slate-700 group-hover:text-green-500 translate-x-0 group-hover:translate-x-1 transition-all" />
-                   </div>
-                 </div>
-               ))}
-             </div>
-          )}
+                 ))}
+               </div>
+            )}
+          </div>
         </div>
       </main>
 
